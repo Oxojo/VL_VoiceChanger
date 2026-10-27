@@ -25,7 +25,14 @@
 | つくよみちゃん 公式 RVC モデル | 夢前黎 / つくよみちゃん公式サイト | RVC | https://tyc.rei-yumesaki.net/work/software/rvc/terms/ | **変換元の声＋モデルの2つ**が必要 | **可**（ボイスチェンジャー用途を明示的に許容） | 第1候補 |
 | あみたろ 公式 RVC モデル | あみたろの声素材工房 | RVC | https://amitaro.net/voice/voice_rule/ | クレジット必須 | **可**（AIボイチェン用途を明示） | 第2候補 |
 
-**採用**: （Phase 0 で記入）
+**採用**: つくよみちゃん公式RVCモデル（ver 1.0.0 / 2023.06.16 / 取得 2026-10-28）
+
+理由:
+
+- ボイスチェンジャー用途（VTuber 活動・他キャラクターへの声当て）が規約で**明示的に許容**されている
+- 5 種類のモデル（通常1〜3・強・弱）が同梱され、演者の声質に合わせて選べる
+- 無償・登録不要で取得でき、取得元 URL が安定している
+- 再配布の条件が明文化されている（後述）
 
 ## 3. 規約の記録シート（採用モデルごとに 1 枚）
 
@@ -49,6 +56,28 @@
 - 声質変換しての利用:
 - 判断に迷った点と確認方法:
 ```
+
+### 記入済み：つくよみちゃん公式RVCモデル
+
+- モデル名: つくよみちゃん公式RVCモデル（通常1 / 通常2 / 通常3 / 強 / 弱）
+- ファイル名: `tsukuyomi-normal1.pth` / `normal2` / `normal3` / `strong` / `weak`
+- 提供元: 夢前黎（Rei Yumesaki）／つくよみちゃん公式サイト
+- 取得元 URL: https://tyc.rei-yumesaki.net/files/voice/tyc-rvc.zip （配布ページ: https://tyc.rei-yumesaki.net/work/software/rvc/）
+- 取得日: 2026-10-28
+- バージョン / 更新日: 1.0.0 / 2023.06.16（ReadMe の更新履歴は 2024.03.21 が最終）
+- SHA-256: 下の「5. モデルファイルの管理」を参照
+- 規約 URL: https://tyc.rei-yumesaki.net/work/software/rvc/terms/
+- 規約の確認日: 2026-10-28（ページ最終更新 2026-10-07）
+- 必要なクレジット表記: **「変換元の音声」と「つくよみちゃん公式RVCモデル」の両方**
+- 禁止用途: 政治的立場・宗教・思想への賛同/反対を呼びかける活動、実在の人物・団体・商品等を批判・攻撃する活動（およびその名義での利用）、他者の権利侵害、二次利用を許可する形での公開（例外あり）
+- 商用利用: 可（収益額の上限なし）
+- 改変（マージ・再学習）: 「他の話者の声質とマージする」項目あり。**条件は原文を確認する**
+- 再配布: 原則不可。**ただし「本品がダウンロード不能かつ著作者と連絡が取れない状態が半年以上続く場合」に限り、無料・規約継承を条件に再配布可能**（同梱 `LICENSE-tyc-terms.txt`）
+- 部内共有の可否: **可**（サークル内の検証機への配布は「再配布」ではなく共有の範囲。公開リポジトリには置かない）
+- 声質変換しての利用: 可（規約に「自分の声をつくよみちゃんの声に変換する」「動画やライブ配信等でボイスチェンジャーとして使う」が明記）
+- 判断に迷った点と確認方法: ライブ配信でのクレジット表示方法が規約に具体例として書かれていない → 運営（https://tyc.rei-yumesaki.net/staff/contact/）に確認するか、`docs/05` のクレジット運用表で「概要欄＋開演前アナウンス」に固定する
+
+> 同梱の `models/tsukuyomi/README-tyc.txt` と `LICENSE-tyc-terms.txt` は**モデルと一緒に保管する**（規約がサイトから消えた場合の証跡になる）。
 
 ### 参考：つくよみちゃん公式RVCモデル
 
@@ -108,17 +137,41 @@
 
 ## 5. モデルファイルの管理
 
+### 配置済みモデル（2026-10-28）
+
+| ファイル | 元ファイル名 | サイズ | SHA-256（先頭 16 桁） |
+| :--- | :--- | ---: | :--- |
+| `tsukuyomi-normal1.pth` | 01 通常1 | 52.7 MB | `CD4996435D0E9C9F` |
+| `tsukuyomi-normal2.pth` | 02 通常2 | 52.7 MB | `3DDDD69D1EF66A31` |
+| `tsukuyomi-normal3.pth` | 03 通常3 | 52.7 MB | `FE84A29DA4BCDE66` |
+| `tsukuyomi-strong.pth` | 04 強 | 52.7 MB | `C21F5C4C26DF3D63` |
+| `tsukuyomi-weak.pth` | 05 弱 | 52.7 MB | `96B8A0E757D87B8B` |
+
+完全なハッシュ値:
+
+```
+tsukuyomi-normal1.pth  CD4996435D0E9C9F93858A13D9DDF5442A011388478DAAB1F732E0AC2B2C4020
+tsukuyomi-normal2.pth  3DDDD69D1EF66A314541F9DFA1E3967F1F18A4CB9B59759C6CDB4CB91055F77C
+tsukuyomi-normal3.pth  FE84A29DA4BCDE66BAFE0A22BBC12444656384758D8A4B361F11F73DD6C365A8
+tsukuyomi-strong.pth   C21F5C4C26DF3D63ADEA7BC8E3291DD81E77495E8A3886ECFD54840C110BBB43
+tsukuyomi-weak.pth     96B8A0E757D87B8BAB88BB015D141A5C123E05CE109F7EBBE9CB40D03C2FCA18
+```
+
+> zip 内のファイル名は日本語だが、**ASCII 名にリネームして配置している**（VC Client / RVC はパスに非 ASCII が入ると失敗することがあるため）。連番との対応は上表のとおり。
+
 | 項目 | 方針 |
 | :--- | :--- |
 | 配置 | `models/<character>/`（**Git 管理外**） |
 | 共有方法 | 部内の共有ドライブ等。**公開リポジトリに置かない** |
-| 同一性の担保 | SHA-256 を規約シートに記録し、配布時に照合する |
+| 同一性の担保 | 上表の SHA-256 を配布時に照合する |
 | バックアップ | モデルは再入手できない場合があるため複数箇所に保管 |
-| index ファイル | 任意。規約上も別扱いになる場合があるため取得元を記録する |
+| index ファイル | **本モデルには同梱されていない**（`.pth` のみ）。index 無しでも動作するが、声質の再現度は index ありより下がる |
+| 規約の証跡 | `README-tyc.txt` / `LICENSE-tyc-terms.txt` をモデルと同じフォルダに置く |
 
 ```powershell
-# ハッシュの取得
-Get-FileHash -Algorithm SHA256 .\models\character-a\character-a.pth | Format-List
+# ハッシュの取得（モデルフォルダ内の .pth をすべて）
+Get-ChildItem .\models\tsukuyomi\*.pth | Get-FileHash -Algorithm SHA256 |
+  Select-Object @{n='File';e={Split-Path $_.Path -Leaf}}, Hash
 ```
 
 ## 6. モデルマージの扱い（追加検討）
@@ -137,7 +190,7 @@ Get-FileHash -Algorithm SHA256 .\models\character-a\character-a.pth | Format-Lis
 
 ## 7. 完了条件
 
-- [ ] 採用モデルを 1 種類に決定した
-- [ ] 規約シートを記入した（規約 URL・確認日・クレジット・禁止用途・共有条件）
-- [ ] SHA-256 を記録した
-- [ ] 必要なクレジット表記の運用（どこに書くか）を決めた
+- [x] 採用モデルを 1 種類に決定した（つくよみちゃん公式RVCモデル）
+- [x] 規約シートを記入した（規約 URL・確認日・クレジット・禁止用途・共有条件）
+- [x] SHA-256 を記録した
+- [ ] 必要なクレジット表記の運用（どこに書くか）を決めた → **演者名が決まれば確定**（`docs/05` の運用表を埋める）

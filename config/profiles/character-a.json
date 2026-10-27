@@ -1,16 +1,16 @@
 {
   "id": "character-a",
-  "displayName": "キャラクターA（初期検証用）",
+  "displayName": "つくよみちゃん（通常1・初期検証用）",
   "status": "draft",
   "updatedAt": "2026-10-28",
   "operator": "",
   "model": {
     "type": "RVC",
-    "pth": "models/character-a/character-a.pth",
+    "pth": "models/tsukuyomi/tsukuyomi-normal1.pth",
     "index": "",
     "sampleRate": 48000,
-    "source": "",
-    "notes": "Phase 1 で読み込む1種類目のモデル。規約確認は docs/05-models.md に記録する。"
+    "source": "https://tyc.rei-yumesaki.net/files/voice/tyc-rvc.zip",
+    "notes": "つくよみちゃん公式RVCモデル ver1.0.0 の「通常1」。normal2/normal3/strong/weak も models/tsukuyomi/ に配置済みで、声質比較に使う。index は同梱されていない。クレジットは「変換元の声」と「つくよみちゃん公式RVCモデル」の両方が必要（docs/05-models.md）。"
   },
   "audio": {
     "mode": "server",

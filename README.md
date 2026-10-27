@@ -3,7 +3,8 @@
 バーチャルライブ向け **リアルタイム音声変換** の実証プロジェクト。
 演者 1 名のマイク入力を RVC モデルで別キャラクターの声に変換し、指定した出力デバイスで確認できる状態を作る。
 
-- 変換エンジン: [w-okada/voice-changer（VC Client）](https://github.com/w-okada/voice-changer) の **RVC 対応エディション（cuda または onnx）**
+- 変換エンジン: [w-okada/voice-changer（VC Client）](https://github.com/w-okada/voice-changer) の **RVC 対応エディション（cuda / dml）**
+- 採用モデル: **つくよみちゃん公式RVCモデル** ver 1.0.0（`models/tsukuyomi/`、Git 管理外）
 - 対象: 演者 1 名 / モデル 1 種類（MVP）
 - 本方針の原典: `virtuallive_音声変換特化_改訂版.md`（企画書）
 
@@ -37,7 +38,9 @@
   - 2026-10 時点で公開されている Windows 用は `vcclient_win_cuda_2.1.4-alpha.zip` / `vcclient_win_dml_2.1.4-alpha.zip`
   - **2.2.2-beta の Windows 版は Beatrice 専用で RVC 非対応**。版番号の大きさで選ばない
   - 詳細は [docs/01-setup.md](docs/01-setup.md) を参照
-- モデルファイル（`.pth` / `.index`）は各自で用意し、**リポジトリにはコミットしない**（`models/` は除外済み）
+- モデルファイル（`.pth` / `.index`）は**リポジトリにコミットしない**（`models/` は除外済み）
+  - 本リポジトリではつくよみちゃん公式RVCモデル（5 種類）を `models/tsukuyomi/` に配置済み
+  - クレジットは「変換元の声」と「つくよみちゃん公式RVCモデル」の**両方**が必要 → [docs/05-models.md](docs/05-models.md)
 
 ## ディレクトリ構成
 
@@ -61,7 +64,7 @@ VL_VoiceChanger/
 
 | フェーズ | 作業 | 完了条件 | 状態 |
 | :--- | :--- | :--- | :--- |
-| Phase 0 | 環境確認・機材台帳 | 機材・ソフト・モデルを決定 | 未着手 |
+| Phase 0 | 環境確認・機材台帳 | 機材・ソフト・モデルを決定 | **進行中**（ソフト・モデルは決定済み。機材の現物確認が残り） |
 | Phase 1 | 初回変換 | 変換後の声が確認できた | 未着手 |
 | Phase 2 | 音質調整 | 評価担当 2 名が明瞭さを確認 | 未着手 |
 | Phase 3 | 安定性検証 | MVP 条件を満たし手順を文書化 | 未着手 |
