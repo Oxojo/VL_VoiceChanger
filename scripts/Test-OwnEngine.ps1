@@ -21,6 +21,7 @@ param(
     [int]$Pitch = 0,
     [double]$Hop = 0.5,
     [double]$Context = 0.15,
+    [double]$Crossfade = 0.05,
     [string]$ReportPath = 'reports\own-engine-latest.md'
 )
 
@@ -44,27 +45,34 @@ try {
     $outJson = Join-Path $verifyDir ("own-$stem-$Device.json")
     $chunkWav = Join-Path $verifyDir ("own-$stem-$Device-chunk.wav")
 
-    Write-Host "=== 1/3 変換 ==="
+    Write-Host "=== 1/4 変換 ==="
     $convertLog = & $PythonPath -m engine convert `
         -m $ModelPath -i $InputPath -o $outWav --json $outJson `
         --pitch $Pitch --device $Device 2>&1 | Out-String
     Write-Host $convertLog.Trim()
     if ($LASTEXITCODE -ne 0) { throw "変換に失敗しました（終了コード $LASTEXITCODE）" }
 
-    Write-Host "=== 2/3 解析（入力） ==="
+    Write-Host "=== 2/4 解析（入力） ==="
     $analyzeIn = & $PythonPath -m engine analyze -i $InputPath 2>&1 | Out-String
     Write-Host $analyzeIn.Trim()
 
-    Write-Host "=== 2/3 解析（出力） ==="
+    Write-Host "=== 2/4 解析（出力） ==="
     $analyzeOut = & $PythonPath -m engine analyze -i $outWav 2>&1 | Out-String
     Write-Host $analyzeOut.Trim()
 
-    Write-Host "=== 3/3 分割変換の速度 ==="
+    Write-Host "=== 3/4 品質の数値比較 ==="
+    $qualityLog = & $PythonPath 'scripts\measure_quality.py' $InputPath $outWav 2>&1 | Out-String
+    Write-Host $qualityLog.Trim()
+
+    Write-Host "=== 4/4 分割変換の速度 ==="
     $benchLog = & $PythonPath -m engine bench `
         -m $ModelPath -i $InputPath -o $chunkWav `
-        --hop $Hop --context $Context --pitch $Pitch --device $Device 2>&1 | Out-String
+        --hop $Hop --context $Context --crossfade $Crossfade --pitch $Pitch --device $Device 2>&1 | Out-String
     Write-Host $benchLog.Trim()
     if ($LASTEXITCODE -ne 0) { throw "分割変換の計測に失敗しました（終了コード $LASTEXITCODE）" }
+
+    $chunkQualityLog = & $PythonPath 'scripts\measure_quality.py' $InputPath $chunkWav --hop $Hop 2>&1 | Out-String
+    Write-Host $chunkQualityLog.Trim()
 
     $gitHead = (& git rev-parse --short HEAD 2>&1 | Out-String).Trim()
     $gitBranch = (& git branch --show-current 2>&1 | Out-String).Trim()
@@ -78,7 +86,7 @@ try {
         "実行環境: $pyVersion",
         "モデル: $ModelPath",
         "入力: $InputPath",
-        "デバイス: $Device / ピッチシフト: $Pitch 半音 / 分割: hop $Hop 秒・context $Context 秒",
+        "デバイス: $Device / ピッチシフト: $Pitch 半音 / 分割: hop $Hop 秒・context $Context 秒・crossfade $Crossfade 秒",
         '',
         '## 1. 変換',
         '',
@@ -98,25 +106,34 @@ try {
         $analyzeOut.Trim(),
         '```',
         '',
-        '## 4. 分割変換（ライブ成立性）',
+        '## 4. 品質の数値比較（一括変換）',
+        '',
+        $qualityLog.Trim(),
+        '',
+        '## 5. 分割変換（ライブ成立性）',
         '',
         '```text',
         $benchLog.Trim(),
         '```',
         '',
-        '## 5. 出力ファイル',
+        '## 6. 分割変換の品質',
+        '',
+        $chunkQualityLog.Trim(),
+        '',
+        '## 7. 出力ファイル',
         '',
         "- 一括変換: ``$([System.IO.Path]::GetRelativePath($repoRoot, $outWav))``（Git 管理外）",
         "- 分割変換: ``$([System.IO.Path]::GetRelativePath($repoRoot, $chunkWav))``（Git 管理外）",
         "- 計測 JSON: ``$([System.IO.Path]::GetRelativePath($repoRoot, $outJson))``（Git 管理外）",
         '',
-        '## 6. 判定',
+        '## 8. 判定',
         '',
         '| 項目 | 判定 |',
         '| :--- | :--- |',
         '| 変換が最後まで通る | OK（上記ログ参照） |',
         '| 出力が無音でない | 出力の RMS が 0 でないこと |',
-        '| ピッチが入力に追従 | 入力と出力の F0 中央値を比較 |',
+        '| ピッチが入力に追従 | F0 追従（log F0 の相関）が 0.9 以上 |',
+        '| 継ぎ目が不連続でない | 継ぎ目の跳びが全体平均と同程度 |',
         '| ライブ成立 | 分割変換の「最大遅延 < hop」 |',
         '',
         '聴感（声質）の最終判定は人による試聴が必要（`docs/04-verification.md`）。'

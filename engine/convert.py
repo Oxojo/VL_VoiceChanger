@@ -117,6 +117,27 @@ class VoiceConverter:
         self.load_seconds = time.perf_counter() - t0
 
     # ------------------------------------------------------------------ 変換
+    @staticmethod
+    def _fit_frames(tensor: torch.Tensor, frames: int) -> torch.Tensor:
+        """[1, T, C] を [1, frames, C] に合わせる（不足は末尾を複製）。"""
+        cur = tensor.shape[1]
+        if cur == frames:
+            return tensor
+        if cur > frames:
+            return tensor[:, :frames, :]
+        pad = frames - cur
+        return F.pad(tensor.transpose(1, 2), (0, pad), mode="replicate").transpose(1, 2)
+
+    @staticmethod
+    def _fit_frames_1d(array: np.ndarray, frames: int) -> np.ndarray:
+        """[T] を [frames] に合わせる（不足は末尾を複製）。"""
+        cur = array.shape[0]
+        if cur == frames:
+            return array
+        if cur > frames:
+            return array[:frames]
+        return np.pad(array, (0, frames - cur), mode="edge")
+
     def convert_array(self, waveform16k: np.ndarray, options: ConvertOptions | None = None) -> tuple[np.ndarray, ConvertReport]:
         """16 kHz モノラル波形を変換し、(波形, レポート) を返す。"""
         opt = options or ConvertOptions()
@@ -150,12 +171,12 @@ class VoiceConverter:
         feats_t = F.interpolate(feats_t.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         timings["contentvec"] = time.perf_counter() - t
 
-        if feats_t.shape[1] < p_len:
-            p_len = int(feats_t.shape[1])
-            pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-        else:
-            feats_t = feats_t[:, :p_len, :]
+        # ContentVec のフレーム数は 20 ms 単位で切り捨てられるため、
+        # p_len（10 ms 単位）に合わせて端を複製・切り詰める。
+        # ここを揃えないと区間ごとに最大 20 ms ずれ、分割変換で時間ずれが累積する。
+        feats_t = self._fit_frames(feats_t, p_len)
+        pitch = self._fit_frames_1d(pitch, p_len)
+        pitchf = self._fit_frames_1d(pitchf, p_len)
 
         # --- 合成 --------------------------------------------------------
         t = time.perf_counter()

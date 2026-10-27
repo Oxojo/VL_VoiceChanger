@@ -121,5 +121,56 @@ class TestSynthesizerShapes(unittest.TestCase):
         self.assertTrue(torch.all(torch.abs(out) <= 1.0))
 
 
+class TestChunkedConverter(unittest.TestCase):
+    """区間の切り出しと連結の長さ・ずれを、合成器を使わずに確認する。"""
+
+    class _FakeConverter:
+        class _Info:
+            sample_rate = 40000
+
+        info = _Info()
+
+        def __init__(self) -> None:
+            self.segments: list[int] = []
+
+        def convert_array(self, audio: np.ndarray, options) -> tuple[np.ndarray, None]:
+            self.segments.append(int(audio.shape[0]))
+            # 実機と同じく「10 ms フレーム数 × 400 サンプル」を返す
+            frames = audio.shape[0] // 160
+            # 区間の先頭が分かるよう、通し番号を振幅として埋め込む
+            out = np.full(frames * 400, float(len(self.segments)), dtype=np.float32)
+            return out, None
+
+    def test_length_is_frame_exact(self) -> None:
+        from engine.realtime import ChunkConfig, ChunkedConverter
+
+        fake = self._FakeConverter()
+        chunked = ChunkedConverter(
+            fake,  # type: ignore[arg-type]
+            ChunkConfig(hop_seconds=0.3, context_seconds=0.1, crossfade_seconds=0.05),
+        )
+        audio = np.zeros(16000, dtype=np.float32)  # 1.0 秒 = 100 フレーム
+        out, stats = chunked.process(audio)
+
+        self.assertEqual(out.shape[0], 100 * 400)  # 端数なく全フレームが埋まる
+        self.assertEqual(stats.chunks, 4)  # 0.3 秒ごと → 30 + 30 + 30 + 10 フレーム
+        self.assertAlmostEqual(stats.audio_seconds, 1.0, places=6)
+
+    def test_segments_include_context_and_crossfade(self) -> None:
+        from engine.realtime import ChunkConfig, ChunkedConverter
+
+        fake = self._FakeConverter()
+        chunked = ChunkedConverter(
+            fake,  # type: ignore[arg-type]
+            ChunkConfig(hop_seconds=0.5, context_seconds=0.1, crossfade_seconds=0.05),
+        )
+        audio = np.zeros(16000 * 2, dtype=np.float32)  # 2.0 秒
+        chunked.process(audio)
+
+        # 2 区間目以降は「文脈 0.1 + 本体 0.5 + 文脈 0.1 + クロスフェード 0.05」
+        self.assertEqual(fake.segments[0], int(0.5 * 16000) + int(0.1 * 16000) + int(0.05 * 16000))
+        self.assertEqual(fake.segments[1], int((0.1 + 0.5 + 0.1 + 0.05) * 16000))
+
+
 if __name__ == "__main__":
     unittest.main()

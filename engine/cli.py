@@ -151,7 +151,12 @@ def cmd_bench(args: argparse.Namespace) -> int:
         rmvpe_path=args.rmvpe,
     )
     wav = load_mono(args.input, SAMPLE_RATE)
-    cfg = ChunkConfig(hop_seconds=args.hop, context_seconds=args.context, seed=None if args.seed < 0 else args.seed)
+    cfg = ChunkConfig(
+        hop_seconds=args.hop,
+        context_seconds=args.context,
+        crossfade_seconds=args.crossfade,
+        seed=None if args.seed < 0 else args.seed,
+    )
     chunked = ChunkedConverter(conv, cfg)
     options = ConvertOptions(
         pitch_shift=args.pitch,
@@ -161,7 +166,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
         output_sr=args.output_sr,
     )
 
-    print(f"分割変換: hop {cfg.hop_seconds}s / context {cfg.context_seconds}s / デバイス {args.device}")
+    print(
+        f"分割変換: hop {cfg.hop_seconds}s / context {cfg.context_seconds}s "
+        f"/ crossfade {cfg.crossfade_seconds}s / デバイス {args.device}"
+    )
     out, stats = chunked.process(wav, options)
 
     if args.output:
@@ -211,6 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("-o", "--output", default=None, help="分割変換の結果を書き出す WAV")
     pb.add_argument("--hop", type=float, default=0.5, help="1 回で進める長さ（秒）")
     pb.add_argument("--context", type=float, default=0.15, help="前後に付ける文脈（秒）")
+    pb.add_argument("--crossfade", type=float, default=0.05, help="継ぎ目のクロスフェード長（秒）")
     pb.add_argument("--pitch", type=int, default=0, help="ピッチシフト（半音）")
     pb.add_argument("--speaker", type=int, default=0, help="話者 ID")
     pb.add_argument("--rms-mix", type=float, default=0.25, help="音量を入力に寄せる強さ 0-1")
