@@ -1,0 +1,62 @@
+{
+  "$comment": "プロファイルのひな形。コピーして character-xxx.json を作り、値を埋める。GUI 上の表示名は ''uiLabel'' に記載している。",
+  "id": "character-x",
+  "displayName": "キャラクターX",
+  "status": "draft",
+  "updatedAt": "2026-10-28",
+  "operator": "",
+  "model": {
+    "type": "RVC",
+    "pth": "models/character-x/character-x.pth",
+    "index": "",
+    "sampleRate": 48000,
+    "source": "",
+    "notes": ""
+  },
+  "audio": {
+    "mode": "server",
+    "inputDevice": "",
+    "outputDevice": "",
+    "monitorDevice": "",
+    "sampleRate": 48000,
+    "notes": ""
+  },
+  "convert": {
+    "pitch": 0,
+    "indexRatio": 0.5,
+    "f0Detector": "rmvpe",
+    "chunk": 128,
+    "extra": 8192,
+    "noiseGateDb": -60,
+    "gainIn": 0,
+    "gainOut": 0,
+    "volume": 1.0,
+    "noiseSuppression": {
+      "echo": false,
+      "sup1": false,
+      "sup2": false
+    }
+  },
+  "gpu": {
+    "deviceId": 0
+  },
+  "measured": {
+    "bufMs": null,
+    "resMs": null,
+    "measuredAt": ""
+  },
+  "uiLabel": {
+    "pitch": "TUNE",
+    "indexRatio": "INDEX",
+    "f0Detector": "F0 Det",
+    "chunk": "CHUNK",
+    "extra": "EXTRA",
+    "noiseGateDb": "S. Thresh",
+    "gainIn": "GAIN in",
+    "gainOut": "GAIN out",
+    "volume": "vol",
+    "mode": "AUDIO",
+    "model": "モデル選択エリア"
+  },
+  "notes": ""
+}

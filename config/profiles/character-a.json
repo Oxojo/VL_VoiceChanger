@@ -1,0 +1,61 @@
+{
+  "id": "character-a",
+  "displayName": "キャラクターA（初期検証用）",
+  "status": "draft",
+  "updatedAt": "2026-10-28",
+  "operator": "",
+  "model": {
+    "type": "RVC",
+    "pth": "models/character-a/character-a.pth",
+    "index": "",
+    "sampleRate": 48000,
+    "source": "",
+    "notes": "Phase 1 で読み込む1種類目のモデル。規約確認は docs/05-models.md に記録する。"
+  },
+  "audio": {
+    "mode": "server",
+    "inputDevice": "",
+    "outputDevice": "",
+    "monitorDevice": "",
+    "sampleRate": 48000,
+    "notes": "server モードは遅延を抑えやすいが、デバイスは VC Client が直接掴む。client モードはブラウザ経由。"
+  },
+  "convert": {
+    "pitch": 0,
+    "indexRatio": 0.5,
+    "f0Detector": "rmvpe",
+    "chunk": 128,
+    "extra": 8192,
+    "noiseGateDb": -60,
+    "gainIn": 0,
+    "gainOut": 0,
+    "volume": 1.0,
+    "noiseSuppression": {
+      "echo": false,
+      "sup1": false,
+      "sup2": false
+    }
+  },
+  "gpu": {
+    "deviceId": 0
+  },
+  "measured": {
+    "bufMs": null,
+    "resMs": null,
+    "measuredAt": ""
+  },
+  "uiLabel": {
+    "pitch": "TUNE",
+    "indexRatio": "INDEX",
+    "f0Detector": "F0 Det",
+    "chunk": "CHUNK",
+    "extra": "EXTRA",
+    "noiseGateDb": "S. Thresh",
+    "gainIn": "GAIN in",
+    "gainOut": "GAIN out",
+    "volume": "vol",
+    "mode": "AUDIO",
+    "model": "モデル選択エリア"
+  },
+  "notes": "初期値は暫定。docs/06-tuning.md の順序で1項目ずつ調整し、確定値をここへ反映する。"
+}

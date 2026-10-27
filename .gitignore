@@ -1,0 +1,16 @@
+# モデル本体は容量・利用規約の都合でコミットしない
+models/*
+!models/.gitkeep
+
+# 生ログ（CSV / JSON）はコミットしない。判定用の Markdown は reports/ に残す
+logs/*
+!logs/.gitkeep
+reports/*.json
+
+# OS / エディタ
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+*.tmp
+~$*
