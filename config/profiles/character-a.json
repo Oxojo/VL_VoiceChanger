@@ -8,9 +8,10 @@
     "type": "RVC",
     "pth": "models/tsukuyomi/tsukuyomi-normal1.pth",
     "index": "",
-    "sampleRate": 48000,
+    "sampleRate": 40000,
+    "slotIndex": 5,
     "source": "https://tyc.rei-yumesaki.net/files/voice/tyc-rvc.zip",
-    "notes": "つくよみちゃん公式RVCモデル ver1.0.0 の「通常1」。normal2/normal3/strong/weak も models/tsukuyomi/ に配置済みで、声質比較に使う。index は同梱されていない。クレジットは「変換元の声」と「つくよみちゃん公式RVCモデル」の両方が必要（docs/05-models.md）。"
+    "notes": "つくよみちゃん公式RVCモデル ver1.0.0 の「通常1」。normal2/normal3/strong/weak も models/tsukuyomi/ に配置済みで、声質比較に使う。index は同梱されていない。クレジットは「変換元の声」と「つくよみちゃん公式RVCモデル」の両方が必要（docs/05-models.md）。VC Client へは 2026-10-28 に scripts/Register-Model.ps1 で登録済み（slot_index=5 / GUI 表示 6. / pyTorchRVCv2 / 40000 Hz / hubert_base_l12 / rmvpe_onnx）。"
   },
   "audio": {
     "mode": "server",
