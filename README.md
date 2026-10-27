@@ -4,6 +4,7 @@
 演者 1 名のマイク入力を RVC モデルで別キャラクターの声に変換し、指定した出力デバイスで確認できる状態を作る。
 
 - 変換エンジン: [w-okada/voice-changer（VC Client）](https://github.com/w-okada/voice-changer) の **RVC 対応エディション（cuda / dml）**
+- 自前エンジン: `engine/`（Python + PyTorch / ONNX Runtime）。VC Client に依存せず WAV → WAV 変換を実行する
 - 採用モデル: **つくよみちゃん公式RVCモデル** ver 1.0.0（`models/tsukuyomi/`、Git 管理外）
 - 対象: 演者 1 名 / モデル 1 種類（MVP）
 - 本方針の原典: `virtuallive_音声変換特化_改訂版.md`（企画書）
@@ -12,8 +13,8 @@
 
 | # | 成果物 | このリポジトリでの実体 |
 | :-- | :--- | :--- |
-| 1 | 動作する音声変換環境 | `config/settings.json` + `config/profiles/*.json` + VC Client 本体 |
-| 2 | 設定・導入手順書 | `docs/00`〜`docs/06` |
+| 1 | 動作する音声変換環境 | `config/settings.json` + `config/profiles/*.json` + VC Client 本体 + `engine/` |
+| 2 | 設定・導入手順書 | `docs/00`〜`docs/07` |
 | 3 | 検証記録 | `reports/stability-*.md`、`reports/environment-*.md`、`docs/04-verification.md` |
 
 ## クイックスタート
@@ -40,6 +41,25 @@
 
 **変換の開始（start）だけは GUI 操作**（`http://localhost:18000/`）。REST API では変換スレッドが起動しないことを実測で確認済み。
 
+### 自前エンジン（VC Client を使わない変換）
+
+```powershell
+# 初回のみ: Python 3.12 の仮想環境と依存関係
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r engine\requirements.txt
+
+# モデル構成の確認
+.\.venv\Scripts\python.exe -m engine inspect -m models\tsukuyomi\tsukuyomi-normal1.pth
+
+# 変換（--device cuda で GPU、--pitch 12 で 1 オクターブ上）
+.\scripts\Convert-Audio.ps1 -InputPath logs\verify\tts-input-ja.wav -OutputPath logs\verify\own-ja.wav
+
+# 出力の F0・音量の確認
+.\.venv\Scripts\python.exe -m engine analyze -i logs\verify\own-ja.wav
+```
+
+詳細・実測値・制約は [docs/07-own-engine.md](docs/07-own-engine.md)。
+
 ## 前提
 
 - Windows 10/11 + PowerShell 5.1 以上
@@ -58,16 +78,19 @@ VL_VoiceChanger/
 ├─ config/
 │  ├─ settings.json          # VC Client の場所・ポート・既定値
 │  └─ profiles/              # キャラクター別の設定（1 ファイル = 1 モデル）
-├─ docs/                     # 導入手順・運用・復旧・検証・モデル規約
+├─ docs/                     # 導入手順・運用・復旧・検証・モデル規約・自前エンジン
+├─ engine/                   # 自前音声変換エンジン（Python / PyTorch / ONNX Runtime）
 ├─ models/                   # モデル配置（Git 管理外）
 ├─ reports/                  # 検証レポート（Markdown はコミット対象）
 ├─ logs/                     # 生ログ CSV（Git 管理外）
+├─ tests/                    # 自前エンジンの最小テスト（unittest）
 └─ scripts/
    ├─ Check-Environment.ps1  # Phase 0: 環境診断
    ├─ Start-VoiceChanger.ps1 # Phase 1: 起動と設定チェックリスト
    ├─ Register-Model.ps1     # Phase 1: モデル登録（REST API）
    ├─ Set-VoiceProfile.ps1   # Phase 1: プロファイル適用（REST API）
    ├─ Test-Stability.ps1     # Phase 3: 10 分連続計測
+   ├─ Convert-Audio.ps1      # 自前エンジンでの WAV 変換
    └─ lib/Common.ps1         # 共通関数
 ```
 
@@ -85,7 +108,7 @@ VL_VoiceChanger/
 
 ## 重要な注意
 
-- **このリポジトリは「変換そのもの」を実装しない。** 変換は VC Client が担当し、ここは設定・手順・検証記録を管理する。
+- **既定の経路は VC Client による変換**（設定・手順・検証記録を管理）。加えて `engine/` に**自前の変換実装**を持ち、VC Client に依存せず WAV → WAV 変換ができる。
 - 自動化できる範囲は **起動・モデル登録・デバイス/GPU/ノイズゲート等の設定** まで（REST API）。
   - モデル登録: `POST /api/slot-manager/slots`（`Register-Model.ps1`）
   - 設定反映: `PUT /api/configuration-manager/configuration`（`Set-VoiceProfile.ps1`）

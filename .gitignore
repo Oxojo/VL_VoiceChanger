@@ -7,6 +7,11 @@ logs/*
 !logs/.gitkeep
 reports/*.json
 
+# Python（自前エンジン）
+.venv/
+__pycache__/
+*.pyc
+
 # OS / エディタ
 Thumbs.db
 Desktop.ini
