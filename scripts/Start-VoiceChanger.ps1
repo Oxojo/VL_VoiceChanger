@@ -26,6 +26,8 @@
 
 .PARAMETER TimeoutSeconds
     GUI の応答待ち時間。省略時は settings.json の vcClient.startupTimeoutSeconds。
+    初回起動は必須モジュール（約 3.3 GB）の取得で数十分かかるため、
+    ダウンロードが進んでいる間はこの時間を超えても待ち続ける。
 
 .EXAMPLE
     .\scripts\Start-VoiceChanger.ps1 -Profile character-a
@@ -159,17 +161,81 @@ if ($errors.Count -gt 0) {
 
 # ---------------------------------------------------------------- 起動
 Write-Step '2. VC Client 起動'
+
+<#
+    初回起動時、VC Client は RVC 用の必須モジュール（hubert / contentvec / rmvpe /
+    onnxcrepe / applio など合計約 3.3 GB）を先に全部ダウンロードする。
+    その間ポートは開かないため、単純なタイムアウトだと「起動失敗」と誤判定する。
+    ここでは vcclient.log の進捗を見て、ダウンロードが進んでいる間は待ち続ける。
+#>
+function Wait-VcClientGui {
+    param([int]$Port, [int]$TimeoutSeconds, [string]$LogPath)
+
+    $startTime = Get-Date
+    $deadline = $startTime.AddSeconds($TimeoutSeconds)
+    $lastDone = -1
+    $lastTotal = -1
+    $lastProgress = $startTime
+    $lastTick = $startTime
+
+    while ($true) {
+        if (Test-PortOpen -Port $Port -TimeoutMilliseconds 500) { return $true }
+
+        $done = -1
+        $total = -1
+        if ($LogPath -and (Test-Path -LiteralPath $LogPath)) {
+            $done = @(Select-String -LiteralPath $LogPath -Pattern 'Downloading completed:' -ErrorAction SilentlyContinue).Count
+            $total = @(Select-String -LiteralPath $LogPath -Pattern 'Start downloading:' -ErrorAction SilentlyContinue).Count
+        }
+
+        $now = Get-Date
+        if ($done -ge 0 -and ($done -ne $lastDone -or $total -ne $lastTotal)) {
+            if ($lastDone -ge 0 -and $done -ne $lastDone -and $total -gt 0) {
+                Write-Info ("必須モジュールのダウンロード: {0}/{1} 件" -f $done, $total)
+            }
+            $lastDone = $done
+            $lastTotal = $total
+            $lastProgress = $now
+        }
+
+        # ダウンロードが進んでいる間は待ち続ける（30 分間まったく進まなければ打ち切る）
+        $downloading = ($done -ge 0 -and $total -gt 0 -and $done -lt $total -and ($now - $lastProgress).TotalSeconds -lt 1800)
+        if (-not $downloading -and $now -ge $deadline) { return $false }
+
+        if (($now - $lastTick).TotalSeconds -ge 60) {
+            Write-Info ("起動待機中... 経過 {0} 分 / モジュール {1}/{2} 件" -f [int](($now - $startTime).TotalMinutes), $done, $total)
+            $lastTick = $now
+        }
+        Start-Sleep -Seconds 2
+    }
+}
+
+$logPath = ''
+if (-not [string]::IsNullOrWhiteSpace($vcRoot)) { $logPath = Join-Path $vcRoot 'vcclient.log' }
+
 $alreadyRunning = Test-PortOpen -Port $port -TimeoutMilliseconds 800
+$existingProcs = @(Find-VcClientProcesses -Root $vcRoot -Names '')
 if ($alreadyRunning) {
     Write-Ok "ポート $port は既に応答しています（起動済みと判断し、二重起動しません）"
 } elseif ($DryRun) {
     Write-Info 'DryRun のため起動しません。'
     Write-Info "実行時のコマンド: `"$launcher`" (作業ディレクトリ: $vcRoot)"
+} elseif ($existingProcs.Count -gt 0) {
+    $pids = ($existingProcs | ForEach-Object { $_.Id }) -join ', '
+    Write-Warn "VC Client のプロセスが既に動作しています（PID: $pids）。二重起動せず、GUI の応答を待ちます。"
+    if (-not (Wait-VcClientGui -Port $port -TimeoutSeconds $TimeoutSeconds -LogPath $logPath)) {
+        Write-Err "時間内にポート $port が開きませんでした（プロセスは動作中）。"
+        Write-Info '初回起動は必須モジュールの取得（約 3.3 GB）で数十分かかります。'
+        Write-Info "プロセスを終了せず、時間をおいて再度このスクリプトを実行してください（-TimeoutSeconds 7200 で長めに待つこともできます）。"
+        exit 1
+    }
+    Write-Ok "GUI が応答しました: http://localhost:$port/"
 } else {
     Write-Info "起動: $launcherName"
     Start-Process -FilePath (Join-Path $vcRoot $launcherName) -WorkingDirectory $vcRoot -WindowStyle Minimized
-    Write-Info "GUI の応答を待機中（最大 $TimeoutSeconds 秒）。初回起動はモデル等のダウンロードで時間がかかります。"
-    if (Wait-Port -Port $port -TimeoutSeconds $TimeoutSeconds) {
+    Write-Info "GUI の応答を待機中（最大 $TimeoutSeconds 秒）。"
+    Write-Info '初回起動は必須モジュール（合計約 3.3 GB）の取得が走るため、数十分かかることがあります。'
+    if (Wait-VcClientGui -Port $port -TimeoutSeconds $TimeoutSeconds -LogPath $logPath) {
         Write-Ok "GUI が応答しました: http://localhost:$port/"
     } else {
         Write-Err "時間内にポート $port が開きませんでした。"

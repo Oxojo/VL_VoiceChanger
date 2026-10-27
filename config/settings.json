@@ -4,7 +4,7 @@
     "root": "C:/Tools/vcclient_win_cuda",
     "launcher": "start_http.bat",
     "port": 18888,
-    "startupTimeoutSeconds": 180
+    "startupTimeoutSeconds": 300
   },
   "paths": {
     "profiles": "config/profiles",
@@ -15,6 +15,6 @@
   "stabilityTest": {
     "durationMinutes": 10,
     "sampleSeconds": 5,
-    "processName": "MMVC_Client*,MMVCServerSIO*,vcclient*"
+    "processName": "main,MMVC_Client*,MMVCServerSIO*,vcclient*"
   }
 }

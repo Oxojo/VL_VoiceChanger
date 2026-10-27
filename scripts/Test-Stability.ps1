@@ -65,7 +65,7 @@ if (Test-Path -LiteralPath $ConfigPath) {
 if ($DurationMinutes -le 0) { $DurationMinutes = [int](Get-SettingValue -Object $config -Path 'stabilityTest.durationMinutes' -Default 10) }
 if ($SampleSeconds -le 0) { $SampleSeconds = [int](Get-SettingValue -Object $config -Path 'stabilityTest.sampleSeconds' -Default 5) }
 if ([string]::IsNullOrWhiteSpace($ProcessName)) {
-    $ProcessName = [string](Get-SettingValue -Object $config -Path 'stabilityTest.processName' -Default 'MMVC_Client*,MMVCServerSIO*,vcclient*')
+    $ProcessName = [string](Get-SettingValue -Object $config -Path 'stabilityTest.processName' -Default 'main,MMVC_Client*,MMVCServerSIO*,vcclient*')
 }
 $vcRoot = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'vcClient.root' -Default ''))
 $port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18888)

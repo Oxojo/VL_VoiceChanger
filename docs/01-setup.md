@@ -52,6 +52,22 @@
 
 パスはスラッシュ区切りでもバックスラッシュでもよい。`\` を使う場合は JSON 上で `\\` と二重に書く。
 
+### 2.1 展開後のフォルダ構造（2.1.4-alpha）
+
+zip の中は `dist\main\` に全ファイルが入っている。**`start_http.bat` がある階層が `vcClient.root`** になる。
+
+```text
+C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
+├─ main.exe                       ← 実体（プロセス名は main）
+├─ start_http.bat                 ← 中身は "main.exe start --https false"
+├─ start_https.bat
+├─ start_http_with_ngrok.bat
+└─ _internal\                     ← 依存 DLL・モデル置き場
+```
+
+- **`dist\main` を残したまま `root` に指定しない。** 一段深いと `start_http.bat` が見つからず起動に失敗する。
+- `start_http.bat` は `main.exe` を起動するだけの 1 行。**プロセス名は `main`**（旧版の `MMVC_Client*` ではない）。本リポジトリのスクリプトは `vcClient.root` 配下の実行ファイルから自動判定するため、名前を覚える必要はない。
+
 ## 3. 初回起動
 
 ```powershell
@@ -62,11 +78,29 @@
 
 1. プロファイルとモデルファイルの存在確認
 2. 記録済みの入出力デバイスが現在も存在するか確認
-3. `start_http.bat` の起動
-4. GUI ポートの応答待ち（最大 180 秒）
+3. `start_http.bat` の起動（**既にプロセスが動いている場合は二重起動しない**）
+4. GUI ポートの応答待ち（既定 300 秒。ただし**モジュールのダウンロードが進んでいる間は延長**）
 5. **GUI で設定する値のチェックリスト表示**
 
-初回起動時は必要なデータをインターネットからダウンロードするため 1〜2 分かかる。
+### 3.1 初回起動はとても長い（実測）
+
+初回起動時、VC Client は RVC 用の必須モジュール **10 個・合計約 3.3 GB** を取得し、**それが終わるまで GUI を開かない**。
+
+| 項目 | 実測（2026-10-28 / 下り約 3 Mbps 相当） |
+| :--- | :--- |
+| モジュール取得 | 10 個 / 約 3.3 GB |
+| 所要時間 | **1 時間以上**（回線次第で 30 分〜数時間） |
+| 進捗の見え方 | スクリプトが `必須モジュールのダウンロード: 3/10 件` のように表示 |
+| 2 回目以降 | 取得済みのため数十秒で起動 |
+
+> **初回は「失敗した」と判断して再起動を繰り返さないこと。** 途中まで取得したモジュールは再利用されるが、無駄に時間がかかる。
+> 進捗は `C:\Tools\vcclient_win_cuda\vcclient.log` で確認できる（[03-troubleshooting.md](03-troubleshooting.md) に確認用コマンドあり）。
+
+待ち時間を長めにしたい場合:
+
+```powershell
+.\scripts\Start-VoiceChanger.ps1 -Profile character-a -TimeoutSeconds 7200
+```
 
 > GUI が開かない場合は [03-troubleshooting.md](03-troubleshooting.md) の「GUI が開かない」を参照。
 

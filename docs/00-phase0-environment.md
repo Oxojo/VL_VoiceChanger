@@ -68,14 +68,17 @@
 | 項目 | 記録内容 |
 | :--- | :--- |
 | ソフト名 | VC Client（w-okada/voice-changer） |
-| 配布ファイル名 | 例: `vcclient_win_cuda_2.1.4-alpha.zip`（**ファイル名をそのまま記録する**） |
-| エディション | cuda / dml（**std は RVC 非対応**） |
-| バージョン | 例: 2.1.4-alpha |
+| 配布ファイル名 | `vcclient_win_cuda_2.1.4-alpha.zip`（3,583 MB） |
+| エディション | `cuda`（`Check-Environment.ps1` で判定確認済み） |
+| バージョン | 2.1.4-alpha |
 | ダウンロード元 URL | https://huggingface.co/wok000/vcclient000 |
-| 取得日 |  |
-| 配置パス | 例: `C:\Tools\vcclient_win_cuda` |
-| 起動方法 | `start_http.bat` |
+| 取得日 | 2026-10-28 |
+| 配置パス | `C:\Tools\vcclient_win_cuda`（`main.exe` / `start_http.bat` が直下） |
+| 起動方法 | `start_http.bat`（中身は `main.exe start --https false`） |
+| 実行ファイル / プロセス名 | `main.exe` / `main` |
 | GUI の URL | http://localhost:18888/ |
+| 初回起動の追加取得 | RVC 用モジュール 10 個・**約 3.3 GB**（`modules\` 配下、2026-10-28 実測） |
+| ディスク所要 | VC Client 展開後 約 8 GB ＋ モジュール 3.3 GB ＋ モデル 264 MB ≒ **12 GB** |
 | 備考 | パスに Unicode を含めない（ONNX Runtime が失敗する報告あり） |
 
 ## 4. モデルを 1 種類に絞る
@@ -103,7 +106,7 @@
 
 - [ ] 機材台帳を記入し、不足品と調達方法を決めた（PC 欄は記入済み。**残りは現物確認**）
 - [x] VC Client のエディション・バージョン・ダウンロード元を確定した（`cuda` / 2.1.4-alpha / HuggingFace `wok000/vcclient000`）
-- [ ] `config/settings.json` の `vcClient.root` を実パスに更新した
+- [x] `config/settings.json` の `vcClient.root` を実パスに更新した（`C:/Tools/vcclient_win_cuda`）
 - [x] 採用モデル 1 種類とその利用条件を `docs/05-models.md` に記録した
 - [x] `reports/environment-latest.md` を残した
 

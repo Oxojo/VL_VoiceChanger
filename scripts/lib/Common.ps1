@@ -209,7 +209,7 @@ function Find-VcClientProcesses {
     #>
     param(
         [string]$Root = '',
-        [string]$Names = 'MMVC_Client*,MMVCServerSIO*,vcclient*'
+        [string]$Names = 'main,MMVC_Client*,MMVCServerSIO*,vcclient*'
     )
 
     $byId = @{}

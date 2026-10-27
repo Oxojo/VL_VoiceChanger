@@ -110,19 +110,51 @@
 
 ### GUI が開かない／画面が白い
 
+> **最初に疑うのは「初回起動のモジュールダウンロード中」。**
+> 2.1.4-alpha は初回起動時に RVC 用の必須モジュール **10 個・合計約 3.3 GB** を
+> `C:\Tools\vcclient_win_cuda\modules\` へダウンロードし、**すべて終わるまでポート 18888 を開かない**。
+> 回線速度によっては **30〜90 分**かかる。
+
 | 症状 | 対処 |
 | :--- | :--- |
-| ポートが開かない | コンソールのエラーを確認。`VC Client` を再起動 |
+| **ポートが開かない（初回）** | 仕様。`vcclient.log` に `Start downloading:` / `Downloading completed:` が出ていれば正常に進行中。**中断・再起動しない**（最初からやり直しになる） |
+| ポートが開かない（2 回目以降） | コンソールのエラーを確認。`VC Client` を再起動 |
 | `ERR_CONNECTION_REFUSED` | 起動処理中。1〜2 分待つ。ウイルス対策の除外を追加 |
 | 白い画面のまま | ブラウザで `http://localhost:18888/` を直接開く。F5 |
-| ポート 18888 が使用中 | 旧プロセスが残っている。タスクマネージャで `MMVC_Client` を終了 |
+| ポート 18888 が使用中 | 旧プロセスが残っている。タスクマネージャで `main`（2.1.4-alpha の実行ファイル名）を終了 |
 | 起動直後に閉じる | パスに Unicode が含まれていないか確認（ONNX Runtime が失敗する） |
+| ダウンロードが途中で止まる | `vcclient.log` の最終行の時刻を確認。30 分以上進まなければ VC Client を終了して再起動（途中まで取得済みのモジュールは再利用される） |
 
 ```powershell
+# 進捗の確認（初回起動時）
+Get-Content 'C:\Tools\vcclient_win_cuda\vcclient.log' -Tail 5
+(Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'Start downloading:').Count
+(Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'Downloading completed:').Count
+"取得済み: {0:N0} MB" -f ((Get-ChildItem 'C:\Tools\vcclient_win_cuda\modules' -Recurse -File |
+    Measure-Object Length -Sum).Sum / 1MB)
+
 # 使用中のポートを確認する
 Get-NetTCPConnection -LocalPort 18888 -ErrorAction SilentlyContinue |
     Select-Object LocalAddress, LocalPort, State, OwningProcess
 ```
+
+初回に取得されるモジュール（実測 2026-10-28）:
+
+| モジュール | サイズ |
+| :--- | ---: |
+| `contentvec/hubert_base.pt` | 181 MB |
+| `contentvec/contentvec-f.onnx` | 361 MB |
+| `rinna_hubert/rinna_hubert_base-f.onnx` | 361 MB |
+| `onnxcrepe/tiny.onnx` | 2 MB |
+| `onnxcrepe/full.onnx` | 85 MB |
+| `rmvpe/rmvpe_20231006.pt` | 173 MB |
+| `rmvpe/rmvpe_20231006.onnx` | 345 MB |
+| `applio/japanese_hubert_base.pt` | 361 MB |
+| `applio/chinese_hubert_base.pt` | 1,084 MB |
+| `applio/korean_hubert_base.pt` | 361 MB |
+| **合計** | **約 3.3 GB** |
+
+> 中国語・韓国語のモデルも**使わなくても取得される**。ディスクは VC Client 本体（約 8 GB）に加えて 3.3 GB 必要。
 
 ### モデルが読み込めない
 
