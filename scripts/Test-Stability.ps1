@@ -68,8 +68,9 @@ if ([string]::IsNullOrWhiteSpace($ProcessName)) {
     $ProcessName = [string](Get-SettingValue -Object $config -Path 'stabilityTest.processName' -Default 'main,MMVC_Client*,MMVCServerSIO*,vcclient*')
 }
 $vcRoot = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'vcClient.root' -Default ''))
-$port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18888)
-if ([string]::IsNullOrWhiteSpace($Url)) { $Url = "http://localhost:$port/" }
+$port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18000)
+$healthPath = [string](Get-SettingValue -Object $config -Path 'vcClient.healthPath' -Default '/api/hello')
+if ([string]::IsNullOrWhiteSpace($Url)) { $Url = "http://localhost:$port$healthPath" }
 
 $reportDir = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'paths.reports' -Default 'reports'))
 $logDir = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'paths.logs' -Default 'logs'))
@@ -110,6 +111,21 @@ Write-Host " 予定時間: $DurationMinutes 分 / サンプリング: $SampleSec
 Write-Host " 監視対象: VC Client プロセス（自動判定） / $Url" -ForegroundColor DarkGray
 
 $initialProcs = @(Find-VcClientProcesses -Root $vcRoot -Names $ProcessName)
+
+# サーバー本体は「ポートを待受しているプロセス」。GUI の Electron
+# (voice-changer-native-client.exe) も同じフォルダにあるため、単純な件数だと多重起動に見える。
+$serverPid = $null
+$listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -ne $listener) { $serverPid = [int]$listener.OwningProcess }
+
+$serverProcs = @($initialProcs | Where-Object { $_.Path -notmatch 'voice-changer-native-client\.exe$' })
+if ($serverProcs.Count -gt 1) {
+    Write-Warn "VC Client のサーバープロセスが $($serverProcs.Count) 個あります。多重起動の可能性があります。"
+}
+if ($null -ne $serverPid) {
+    Write-Info "サーバープロセス: PID $serverPid（ポート $port の待受）"
+}
+
 $initialPort = Test-PortOpen -Port $port -TimeoutMilliseconds 1000
 if ($initialProcs.Count -eq 0 -and -not $initialPort) {
     Write-Host ''
@@ -121,8 +137,23 @@ if ($initialProcs.Count -eq 0 -and -not $initialPort) {
     }
     Write-Warn 'AllowNotRunning のため続行します。全サンプルが異常記録になります。'
 }
-if ($initialProcs.Count -gt 1) {
-    Write-Warn "同名プロセスが $($initialProcs.Count) 個あります。多重起動の可能性があります。"
+# 必須モジュール（RVC の前処理モデル）が揃っているか。
+# 初回起動時のダウンロードが途中で止まると、GUI は開くのに RVC が動かない状態になる。
+if ($initialPort) {
+    try {
+        $mods = Invoke-RestMethod -Uri "http://localhost:$port/api/module-manager/modules" -TimeoutSec 10
+        $mods = @($mods)
+        $bad = @($mods | Where-Object { -not $_.valid })
+        if ($bad.Count -gt 0) {
+            Write-Warn "VC Client の必須モジュールが $($bad.Count) 件そろっていません（この状態では RVC は動きません）。"
+            $bad | ForEach-Object { Write-Host "      - $($_.info.id)" -ForegroundColor DarkYellow }
+            Write-Info 'VC Client を再起動してダウンロードを完了させてください（docs/03-troubleshooting.md）。'
+        } elseif ($mods.Count -gt 0) {
+            Write-Ok "必須モジュール: $($mods.Count) 件すべて正常"
+        }
+    } catch {
+        Write-Info "モジュール状態を取得できませんでした（未対応のバージョンの可能性）: $($_.Exception.Message)"
+    }
 }
 
 # ---------------------------------------------------------------- ループ
@@ -166,7 +197,9 @@ while ($sw.Elapsed.TotalSeconds -lt $totalSeconds) {
 
     # --- プロセス
     $procs = @(Find-VcClientProcesses -Root $vcRoot -Names $ProcessName)
-    $proc = $procs | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 1
+    $proc = $null
+    if ($null -ne $serverPid) { $proc = $procs | Where-Object { $_.Id -eq $serverPid } | Select-Object -First 1 }
+    if ($null -eq $proc) { $proc = $procs | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 1 }
     $procOk = $null -ne $proc
     $cpuPct = $null
     $memMB = $null

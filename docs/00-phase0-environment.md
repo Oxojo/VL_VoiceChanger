@@ -76,7 +76,8 @@
 | 配置パス | `C:\Tools\vcclient_win_cuda`（`main.exe` / `start_http.bat` が直下） |
 | 起動方法 | `start_http.bat`（中身は `main.exe start --https false`） |
 | 実行ファイル / プロセス名 | `main.exe` / `main` |
-| GUI の URL | http://localhost:18888/ |
+| GUI の URL | 起動すると **Electron ウィンドウ**が開く。ブラウザでも `http://localhost:18000/` で同じ UI を開ける |
+| 待受ポート | **18000**（`main.exe` の uvicorn。18888 ではない） |
 | 初回起動の追加取得 | RVC 用モジュール 10 個・**約 3.3 GB**（`modules\` 配下、2026-10-28 実測） |
 | ディスク所要 | VC Client 展開後 約 8 GB ＋ モジュール 3.3 GB ＋ モデル 264 MB ≒ **12 GB** |
 | 備考 | パスに Unicode を含めない（ONNX Runtime が失敗する報告あり） |

@@ -22,14 +22,23 @@
 # 1. Phase 0: 機材・環境の棚卸し（レポートが reports/ に出る）
 .\scripts\Check-Environment.ps1
 
-# 2. Phase 1: プロファイルを確認して VC Client を起動
+# 2. Phase 1: モデルを VC Client に登録（初回のみ。登録済みなら何もしない）
+.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+
+# 3. Phase 1: プロファイルを確認して VC Client を起動
 .\scripts\Start-VoiceChanger.ps1 -Profile character-a
 
-# 3. Phase 3: 10 分間の連続使用を計測
+# 4. Phase 1: プロファイルのうち REST で変更できる値を反映（-DryRun で差分確認）
+.\scripts\Set-VoiceProfile.ps1 character-a -DryRun
+.\scripts\Set-VoiceProfile.ps1 character-a
+
+# 5. Phase 3: 10 分間の連続使用を計測
 .\scripts\Test-Stability.ps1 -Profile character-a
 ```
 
 `config/settings.json` の `vcClient.root` を、実際に VC Client を解凍したフォルダへ書き換えてから実行する。
+
+**変換の開始（start）だけは GUI 操作**（`http://localhost:18000/`）。REST API では変換スレッドが起動しないことを実測で確認済み。
 
 ## 前提
 
@@ -56,6 +65,8 @@ VL_VoiceChanger/
 └─ scripts/
    ├─ Check-Environment.ps1  # Phase 0: 環境診断
    ├─ Start-VoiceChanger.ps1 # Phase 1: 起動と設定チェックリスト
+   ├─ Register-Model.ps1     # Phase 1: モデル登録（REST API）
+   ├─ Set-VoiceProfile.ps1   # Phase 1: プロファイル適用（REST API）
    ├─ Test-Stability.ps1     # Phase 3: 10 分連続計測
    └─ lib/Common.ps1         # 共通関数
 ```
@@ -75,6 +86,10 @@ VL_VoiceChanger/
 ## 重要な注意
 
 - **このリポジトリは「変換そのもの」を実装しない。** 変換は VC Client が担当し、ここは設定・手順・検証記録を管理する。
-- VC Client の変換設定は公開 API で一括投入できないため、設定値は GUI で適用し、その結果を `config/profiles/*.json` に記録する運用とする。
+- 自動化できる範囲は **起動・モデル登録・デバイス/GPU/ノイズゲート等の設定** まで（REST API）。
+  - モデル登録: `POST /api/slot-manager/slots`（`Register-Model.ps1`）
+  - 設定反映: `PUT /api/configuration-manager/configuration`（`Set-VoiceProfile.ps1`）
+  - **変換の開始だけは GUI の start が必要**（REST 単独では `bulk conversion process is not started`）
+  - スロット固有の TUNE / INDEX / CHUNK / F0 も GUI で設定する（`PUT /api/slot-manager/slots/{index}` はボディを受け付けない）
 - モデルは利用規約が個別に異なる。「無料だから再配布自由」とは判断しない。採用前に `docs/05-models.md` へ条件を記録する。
 - 本番 PA・OBS・DAW・映像同期は本リポジトリの対象外（企画書 2.2）。

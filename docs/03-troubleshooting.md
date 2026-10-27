@@ -110,20 +110,22 @@
 
 ### GUI が開かない／画面が白い
 
-> **最初に疑うのは「初回起動のモジュールダウンロード中」。**
+> **最初に疑うのは「初回起動のモジュールダウンロードが止まっている」。**
 > 2.1.4-alpha は初回起動時に RVC 用の必須モジュール **10 個・合計約 3.3 GB** を
-> `C:\Tools\vcclient_win_cuda\modules\` へダウンロードし、**すべて終わるまでポート 18888 を開かない**。
-> 回線速度によっては **30〜90 分**かかる。
+> `C:\Tools\vcclient_win_cuda\modules\` へダウンロードする。
+> **GUI（ポート 18000）はダウンロードが全部終わる前に開くことがある**ため、
+> 「画面は出るのに RVC が動かない」場合はモジュールの状態を確認する。
 
 | 症状 | 対処 |
 | :--- | :--- |
-| **ポートが開かない（初回）** | 仕様。`vcclient.log` に `Start downloading:` / `Downloading completed:` が出ていれば正常に進行中。**中断・再起動しない**（最初からやり直しになる） |
+| **ポートが開かない（初回）** | 仕様。`vcclient.log` に `Start downloading:` / `Downloading completed:` が出ていれば正常に進行中。**中断・再起動しない** |
 | ポートが開かない（2 回目以降） | コンソールのエラーを確認。`VC Client` を再起動 |
 | `ERR_CONNECTION_REFUSED` | 起動処理中。1〜2 分待つ。ウイルス対策の除外を追加 |
-| 白い画面のまま | ブラウザで `http://localhost:18888/` を直接開く。F5 |
-| ポート 18888 が使用中 | 旧プロセスが残っている。タスクマネージャで `main`（2.1.4-alpha の実行ファイル名）を終了 |
+| 白い画面のまま | ブラウザで `http://localhost:18000/` を直接開く。F5 |
+| **画面は出るが RVC が動かない** | モジュールが未完了。下のコマンドで `valid=False` を確認し、VC Client を再起動して取得を完了させる |
+| ポート 18000 が使用中 | 旧プロセスが残っている。タスクマネージャで `main`（2.1.4-alpha の実行ファイル名）を終了 |
 | 起動直後に閉じる | パスに Unicode が含まれていないか確認（ONNX Runtime が失敗する） |
-| ダウンロードが途中で止まる | `vcclient.log` の最終行の時刻を確認。30 分以上進まなければ VC Client を終了して再起動（途中まで取得済みのモジュールは再利用される） |
+| ダウンロードが途中で止まる | `vcclient.log` の最終行の時刻を確認。30 分以上進まなければ VC Client を終了して再起動（**部分ファイルは `curl -C -` で再開できる**。下記参照） |
 
 ```powershell
 # 進捗の確認（初回起動時）
@@ -133,10 +135,21 @@ Get-Content 'C:\Tools\vcclient_win_cuda\vcclient.log' -Tail 5
 "取得済み: {0:N0} MB" -f ((Get-ChildItem 'C:\Tools\vcclient_win_cuda\modules' -Recurse -File |
     Measure-Object Length -Sum).Sum / 1MB)
 
+# 起動中なら API で状態を確認できる（これが一番確実）
+Invoke-RestMethod 'http://localhost:18000/api/module-manager/modules' |
+    ForEach-Object { "{0,-38} valid={1}" -f $_.info.id, $_.valid }
+
 # 使用中のポートを確認する
-Get-NetTCPConnection -LocalPort 18888 -ErrorAction SilentlyContinue |
+Get-NetTCPConnection -LocalPort 18000 -ErrorAction SilentlyContinue |
     Select-Object LocalAddress, LocalPort, State, OwningProcess
 ```
+
+**ダウンロードが止まったときの復旧**（2026-10-28 に実際に発生）:
+
+1. VC Client を終了する（`main` と `voice-changer-native-client`）
+2. 部分ファイルは残っているので、**同じ URL へ `curl -C -` で再開**する
+3. 取得後に **SHA-256 を照合**する（ハッシュは `vcclient.log` に記録されている）
+4. 一致したら VC Client を起動する（モジュールは検証済みとして扱われる）
 
 初回に取得されるモジュール（実測 2026-10-28）:
 
@@ -162,6 +175,57 @@ Get-NetTCPConnection -LocalPort 18888 -ErrorAction SilentlyContinue |
 - `.pth` が壊れていないか（サイズが 0 でないか）
 - index は任意。**index 無しでも動く**ので、まず index を外して切り分ける
 - エディションが `std` になっていないか（**std は RVC 非対応**）
+
+`Register-Model.ps1`（REST API）で失敗する場合は次を確認する。**エラー本文は `vcclient.log` にしか出ない**（API は 400 を返すだけ）。
+
+| 症状・ログ | 原因 | 対処 |
+| :--- | :--- | :--- |
+| `Failed to estimate RVC model` | 一時ファイル名に拡張子が無い（`upload_dir\model_file` など） | **拡張子を保ったファイル名**で `upload_dir` に置く |
+| `No such file or directory: 'upload_dir\\upload_dir\\...'` | `model_file` に `upload_dir\` まで含めた | **ファイル名だけ**を渡す（サーバーが前置する） |
+| `POST /api/slot-manager/slots` が 400 | 上記のいずれか | `Get-Content vcclient.log -Encoding UTF8 -Tail 40` で `Failed to set_new_slot` を確認 |
+| `POST .../slots/dummy/rvc` が 500 | **この URL はドキュメント用のダミー** | `POST /api/slot-manager/slots` を使う（`Register-Model.ps1` が行う） |
+
+> **スロット番号は 0 始まり。** `slot_index=5` は GUI では「6.」と表示される。`model_dir\5\` が実体。
+
+### 変換が始まらない（`bulk conversion process is not started`）
+
+- **症状**: GUI も API も応答するが、音声が変換されない。`vcclient.log` に `bulk conversion process is not started` が繰り返し出る
+- **原因**: 2.1.4-alpha では変換スレッドの開始が **GUI（Socket.IO）側の操作**にある。
+  REST の `POST /api/local-voice-changer-interface/operation/start` は音声 I/O スレッドだけを起動し、変換スレッドは起動しない
+- **対処**: `http://localhost:18000/` の GUI で **start** を押す。押すとログに `start_convert_chunk_bulk called` が出る
+
+```powershell
+Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'start_convert_chunk_bulk|bulk conversion process is not started' -Encoding UTF8 |
+    Select-Object -Last 5 | ForEach-Object { $_.Line }
+```
+
+### 録音した WAV が無音（`input.wav` が -90 dB 前後）
+
+server モードの録音で `input.wav` が無音なら、**マイク入力が届いていない**。
+
+| 確認 | コマンド / 見方 |
+| :--- | :--- |
+| デバイスの接続状態 | `Get-PnpDevice -Class AudioEndpoint \| Where-Object FriendlyName -match 'マイク'` → `Status` が `OK` か |
+| Windows のマイク許可 | 設定 > プライバシー > マイク（`ConsentStore\microphone` が `Allow`） |
+| 入力レベル | GUI の入力メーターが発話で振れるか |
+| 録音の実値 | `input.wav` の RMS が **-40 dB 以上**あるか |
+
+実測（2026-10-28）では USB オーディオ IF `マイク (3- AT-UMX3)` が **未接続（PnP Status=Unknown）** で、
+内蔵 `マイク (C-Media(R) Audio)` も実入力が 0 だった（`input.wav` = **-90.7 dB**）。
+**デバイスを接続し直し、`input.wav` が -40 dB 以上になることを確認してから**変換の評価に入る。
+
+### オフライン変換 API が 500 を返す（既知の不具合）
+
+`POST /api/voice-changer/convert_file` は 2.1.4-alpha では**常に 500**になる。
+
+```text
+File "vcclient\voice_changer\voice_change_manager\voice_changer.py", line 733, in convert_file
+TypeError: Timer.__init__() got an unexpected keyword argument 'enable'
+```
+
+`realtime_process_status_enabled` / `realtime_output_status_enabled` を `false` にしても回避できない（実測）。
+**代替**: server モードの**録音**で `input.wav` / `output.wav` を取る（[02-operation.md](02-operation.md) §4.1）。
+
 
 ## 3. 復旧記録
 

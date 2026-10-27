@@ -34,12 +34,31 @@
 .\scripts\Start-VoiceChanger.ps1 -Profile character-a
 ```
 
+初回のみ、モデルを登録する（2 回目以降は「登録済み」と表示されて終了する）。
+
+```powershell
+.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+```
+
+プロファイルのうち **REST API で変更できる値**（モデル/スロット、AUDIO 方式、GPU、ノイズゲート、EXTRA）は
+スクリプトで反映できる。まず `-DryRun` で差分を確認する。
+
+```powershell
+.\scripts\Set-VoiceProfile.ps1 character-a -DryRun
+.\scripts\Set-VoiceProfile.ps1 character-a
+```
+
 表示されたチェックリストのとおり GUI を設定する。
 
 1. モデルを選択する
 2. AUDIO 方式・input・output を確認する
 3. TUNE / INDEX / F0 Det / CHUNK / EXTRA / S. Thresh を合わせる
 4. **start** を押す
+
+> **TUNE（pitch）/ INDEX / F0 Det / CHUNK はスクリプトで変更できない。**
+> `PUT /api/slot-manager/slots/{index}` はボディを受け付けず再読込のみのため、これらは GUI で設定する。
+>
+> **start は GUI で押す。** REST の `operation/start` だけでは変換スレッドが起動しない（実測）。
 
 ## 3. 発話前の最終確認
 
@@ -69,6 +88,22 @@
 | `N` | 声の崩れ |
 | `M` | 自由記述メモ |
 | `Q` | 途中終了 |
+
+### 4.1 変換音の証跡を残す（録音）
+
+聴取評価だけでは「実際に変換されていたか」を後から示せない。**server モード**では録音機能が使える。
+
+1. **録音**（録音開始）を押す
+2. 評価用の固定文を発話する（例:「こんにちは。これは音声変換のテストです。」）
+3. もう一度 **録音** を押す（録音停止）→ GUI が zip をダウンロードする
+4. `vcClient.root` に残る `input.wav`（変換前）と `output.wav`（変換後）を `logs/verify/` へコピーする
+
+| 項目 | 実測値（2026-10-28） |
+| :--- | :--- |
+| 形式 | 44.1 kHz / 32 bit float / モノラル |
+| ファイル名 | `vcClient.root\input.wav` / `output.wav`（録音のたびに**上書き**） |
+| 長さ | 録音開始〜停止の実時間 |
+| 注意 | **client モードでは録音できない**（GUI の録音は server モード専用） |
 
 ## 5. モデル／設定の切り替え（Phase 4）
 

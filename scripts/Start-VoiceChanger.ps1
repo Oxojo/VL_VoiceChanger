@@ -58,7 +58,7 @@ try {
 
 $vcRoot = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'vcClient.root' -Default ''))
 $launcherName = [string](Get-SettingValue -Object $config -Path 'vcClient.launcher' -Default 'start_http.bat')
-$port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18888)
+$port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18000)
 if ($TimeoutSeconds -le 0) {
     $TimeoutSeconds = [int](Get-SettingValue -Object $config -Path 'vcClient.startupTimeoutSeconds' -Default 180)
 }

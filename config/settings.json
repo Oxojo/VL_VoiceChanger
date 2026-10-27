@@ -3,7 +3,8 @@
   "vcClient": {
     "root": "C:/Tools/vcclient_win_cuda",
     "launcher": "start_http.bat",
-    "port": 18888,
+    "port": 18000,
+    "healthPath": "/api/hello",
     "startupTimeoutSeconds": 300
   },
   "paths": {

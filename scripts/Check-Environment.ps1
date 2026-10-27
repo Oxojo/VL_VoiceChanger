@@ -115,7 +115,7 @@ $vcInfo = [ordered]@{
     root       = $VcClientRoot
     exists     = $false
     launcher   = $null
-    port       = 18888
+    port       = 18000
     portOpen   = $false
     edition    = ''
     version    = ''
@@ -124,7 +124,7 @@ $vcInfo = [ordered]@{
     modelCount = 0
 }
 if ($null -ne $config) {
-    $vcInfo.port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18888)
+    $vcInfo.port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18000)
     if ([string]::IsNullOrWhiteSpace($VcClientRoot)) {
         $vcInfo.root = [string](Get-SettingValue -Object $config -Path 'vcClient.root' -Default '')
     }
@@ -149,26 +149,41 @@ if ([string]::IsNullOrWhiteSpace($vcInfo.root)) {
         $result.findings += [pscustomobject]@{ level = 'warn'; message = 'start_http.bat が見つからない' }
     }
 
-    # エディション判定: フォルダ名 / 同梱ファイル名から推定
+    # エディション / バージョン: web_front\assets\gui_settings の定義ファイルが一次情報
+    $guiSettings = Join-Path $vcInfo.root 'web_front\assets\gui_settings'
+    $editionFile = Join-Path $guiSettings 'edition.txt'
+    $versionFile = Join-Path $guiSettings 'version.txt'
     $rootLeaf = Split-Path -Leaf $vcInfo.root
-    if ($rootLeaf -match '(?i)cuda') { $vcInfo.hasCuda = $true }
-    if ($rootLeaf -match '(?i)onnx') { $vcInfo.hasOnnx = $true }
-    if (-not ($vcInfo.hasCuda -or $vcInfo.hasOnnx)) {
-        $dml = Get-ChildItem -LiteralPath $vcInfo.root -Filter '*directml*' -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($null -ne $dml) { $vcInfo.edition = 'onnx-directml（推定）' }
+
+    if (Test-Path -LiteralPath $editionFile) {
+        $vcInfo.edition = ([string](Get-Content -LiteralPath $editionFile -Raw -ErrorAction SilentlyContinue)).Trim()
     }
-    if ($vcInfo.hasCuda) { $vcInfo.edition = 'cuda' }
-    elseif ($vcInfo.hasOnnx) { $vcInfo.edition = 'onnx' }
+    if (Test-Path -LiteralPath $versionFile) {
+        $vcInfo.version = ([string](Get-Content -LiteralPath $versionFile -Raw -ErrorAction SilentlyContinue)).Trim()
+    }
+    # 定義ファイルが無い場合のみフォルダ名から推定する
+    if ([string]::IsNullOrWhiteSpace($vcInfo.edition)) {
+        if ($rootLeaf -match '(?i)cuda') { $vcInfo.edition = 'cuda' }
+        elseif ($rootLeaf -match '(?i)dml|directml') { $vcInfo.edition = 'dml' }
+        elseif ($rootLeaf -match '(?i)onnx') { $vcInfo.edition = 'onnx' }
+    }
+    if ([string]::IsNullOrWhiteSpace($vcInfo.version) -and $rootLeaf -match '(\d+\.\d+\.\d+[-\w.]*)') {
+        $vcInfo.version = $Matches[1]
+    }
 
-    if ($rootLeaf -match '(\d+\.\d+\.\d+[-\w.]*)') { $vcInfo.version = $Matches[1] }
+    $vcInfo.hasCuda = ($vcInfo.edition -match '(?i)cuda')
+    $vcInfo.hasOnnx = ($vcInfo.edition -match '(?i)onnx|dml')
 
-    if ($vcInfo.edition -eq 'cuda' -or $vcInfo.edition -eq 'onnx') {
-        Write-Ok "エディション（推定）: $($vcInfo.edition) — RVC 対応"
-    } elseif ($vcInfo.edition -eq '') {
-        Write-Warn 'エディションを判定できませんでした。v2.2.1 以降の std 版は RVC 非対応です。cuda 版か onnx 版を選んでください。'
+    if ($vcInfo.hasCuda -or $vcInfo.hasOnnx) {
+        Write-Ok "エディション: $($vcInfo.edition) / バージョン: $($vcInfo.version) — RVC 対応"
+    } elseif ($vcInfo.edition -match '(?i)std') {
+        Write-Err "エディション '$($vcInfo.edition)' は RVC 非対応です。cuda 版か dml 版を導入してください。"
+        $result.findings += [pscustomobject]@{ level = 'error'; message = "RVC 非対応エディション: $($vcInfo.edition)" }
+    } elseif ([string]::IsNullOrWhiteSpace($vcInfo.edition)) {
+        Write-Warn 'エディションを判定できませんでした。cuda 版か dml 版かを確認してください。'
         $result.findings += [pscustomobject]@{ level = 'warn'; message = 'エディション判定不可（RVC 対応版か要確認）' }
     } else {
-        Write-Warn "エディション（推定）: $($vcInfo.edition)"
+        Write-Warn "エディション: $($vcInfo.edition)"
     }
 
     $pth = @(Get-ChildItem -LiteralPath $vcInfo.root -Filter '*.pth' -Recurse -ErrorAction SilentlyContinue)
@@ -179,6 +194,32 @@ if ([string]::IsNullOrWhiteSpace($vcInfo.root)) {
 $vcInfo.portOpen = Test-PortOpen -Port $vcInfo.port -TimeoutMilliseconds 1000
 if ($vcInfo.portOpen) {
     Write-Ok "ポート $($vcInfo.port) は応答あり（VC Client 起動中）"
+
+    # 起動中なら API と必須モジュールの状態も確認する
+    try {
+        $hello = Invoke-RestMethod -Uri "http://localhost:$($vcInfo.port)/api/hello" -TimeoutSec 8
+        Write-Ok "API 応答: $($hello.message)"
+        $vcInfo.apiOk = $true
+    } catch {
+        Write-Warn "API が応答しません: $($_.Exception.Message)"
+        $vcInfo.apiOk = $false
+    }
+    try {
+        $mods = Invoke-RestMethod -Uri "http://localhost:$($vcInfo.port)/api/module-manager/modules" -TimeoutSec 8
+        $mods = @($mods)
+        $validCount = @($mods | Where-Object { $_.valid }).Count
+        $vcInfo.moduleTotal = $mods.Count
+        $vcInfo.moduleValid = $validCount
+        if ($mods.Count -gt 0 -and $validCount -lt $mods.Count) {
+            Write-Warn "必須モジュール: $validCount/$($mods.Count) 件のみ有効（RVC は動作しません）"
+            Write-Info 'ダウンロードが途中で止まっています。docs/03-troubleshooting.md の手順で再取得してください。'
+            $result.findings += [pscustomobject]@{ level = 'warn'; message = "必須モジュール未完了 ($validCount/$($mods.Count))" }
+        } elseif ($mods.Count -gt 0) {
+            Write-Ok "必須モジュール: $validCount/$($mods.Count) 件すべて有効"
+        }
+    } catch {
+        Write-Info 'モジュール状態を取得できませんでした（未対応のバージョンの可能性）'
+    }
 } else {
     Write-Info "ポート $($vcInfo.port) は閉じています（未起動）"
 }

@@ -43,7 +43,8 @@
   "vcClient": {
     "root": "C:/Tools/vcclient_win_cuda",
     "launcher": "start_http.bat",
-    "port": 18888
+    "port": 18000,
+    "healthPath": "/api/hello"
   }
 }
 ```
@@ -68,6 +69,19 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 - **`dist\main` を残したまま `root` に指定しない。** 一段深いと `start_http.bat` が見つからず起動に失敗する。
 - `start_http.bat` は `main.exe` を起動するだけの 1 行。**プロセス名は `main`**（旧版の `MMVC_Client*` ではない）。本リポジトリのスクリプトは `vcClient.root` 配下の実行ファイルから自動判定するため、名前を覚える必要はない。
 
+### 2.2 GUI はどこに出るか（実測）
+
+`main.exe start` は 2 つを起動する。
+
+| プロセス | 役割 | 待受 |
+| :--- | :--- | :--- |
+| `main.exe` | Python サーバー（変換・API・Web UI の配信） | **`0.0.0.0:18000`** |
+| `_internal\native_client\voice-changer-native-client.exe` | Electron の GUI ウィンドウ（`-u http://localhost:18000/`） | なし |
+
+- **`http://localhost:18888/` は 2.1.4-alpha では使いません。** 18888 は v1 系・別構成のポート。
+- ブラウザで `http://localhost:18000/` を開いても同じ UI が使える（GUI ウィンドウが開かないときの代替手段）。
+- Electron を閉じても `main.exe` は動き続ける。**終了はタスクマネージャで `main` を終了する。**
+
 ## 3. 初回起動
 
 ```powershell
@@ -84,17 +98,22 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 
 ### 3.1 初回起動はとても長い（実測）
 
-初回起動時、VC Client は RVC 用の必須モジュール **10 個・合計約 3.3 GB** を取得し、**それが終わるまで GUI を開かない**。
+初回起動時、VC Client は RVC 用の必須モジュール **10 個・合計約 3.3 GB** を取得する。
+**GUI（ポート 18000）は全部そろう前に開くことがある**ので、「画面が出た＝使える」と判断しない。
 
-| 項目 | 実測（2026-10-28 / 下り約 3 Mbps 相当） |
+| 項目 | 実測（2026-10-28） |
 | :--- | :--- |
-| モジュール取得 | 10 個 / 約 3.3 GB |
-| 所要時間 | **1 時間以上**（回線次第で 30 分〜数時間） |
+| 起動 → ポート 18000 開放 | **約 43 分**（05:01 → 05:44） |
+| その時点のモジュール | **6/10 件**（残りはバックグラウンドで継続） |
+| モジュール合計 | 10 個 / 約 3.3 GB |
+| 2 回目以降 | 取得済みなら数十秒〜数分 |
 | 進捗の見え方 | スクリプトが `必須モジュールのダウンロード: 3/10 件` のように表示 |
-| 2 回目以降 | 取得済みのため数十秒で起動 |
 
 > **初回は「失敗した」と判断して再起動を繰り返さないこと。** 途中まで取得したモジュールは再利用されるが、無駄に時間がかかる。
 > 進捗は `C:\Tools\vcclient_win_cuda\vcclient.log` で確認できる（[03-troubleshooting.md](03-troubleshooting.md) に確認用コマンドあり）。
+> **ダウンロードが止まったまま GUI だけ開く**ことがある（実測で発生）。その場合は
+> `Invoke-RestMethod 'http://localhost:18000/api/module-manager/modules'` で `valid=False` を確認し、
+> [03-troubleshooting.md](03-troubleshooting.md) の復旧手順に従う。
 
 待ち時間を長めにしたい場合:
 
@@ -105,6 +124,43 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 > GUI が開かない場合は [03-troubleshooting.md](03-troubleshooting.md) の「GUI が開かない」を参照。
 
 ## 4. モデルを登録する
+
+モデル登録は **REST API で自動化できる**（2.1.4-alpha で実証済み）。GUI で行うこともできる。
+
+### 4.1 スクリプトで登録する（推奨）
+
+```powershell
+# 既に登録済みなら「登録済み」と表示して終了する（-Force で二重登録）
+.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+```
+
+スクリプトは次を行う。
+
+1. `GET /api/hello` で VC Client の稼働を確認
+2. モデルの拡張子（`.pth` / `.onnx`）を確認
+3. `GET /api/slot-manager/slots` で登録済みを確認し、**空きスロットを自動選択**
+4. モデルを `vcClient.root\upload_dir\` へコピー
+5. `POST /api/slot-manager/slots`（`RVCModelImportParam`）で取り込み
+6. 登録結果（`inferencer_type` / `sample_rate` / `embedder`）を表示
+
+実測結果（2026-10-28）:
+
+| 項目 | 値 |
+| :--- | :--- |
+| 取り込み時間 | **0.3 秒**（52.7 MB の `.pth`） |
+| 自動判定 | `pyTorchRVCv2` / **40000 Hz** / `hubert_base_l12` / `rmvpe_onnx` |
+| モデル実体 | `vcClient.root\model_dir\<slot_index>\`（`params.json` + `.pth`） |
+| 生成される `params.json` | `voice_changer_type` / `model_file` / `is_onnx` / `sample_rate` / `embedder` など |
+
+> **拡張子は必須。** サーバーは拡張子で RVC / ONNX を判別する。アップロード用の一時ファイル名に拡張子が無いと
+> `Failed to estimate RVC model` で失敗する。
+>
+> **`model_file` はファイル名だけを渡す。** サーバーが `upload_dir\` を前置するため、
+> `upload_dir\foo.pth` を渡すと `upload_dir\upload_dir\foo.pth` になって失敗する。
+>
+> **GUI の表示番号は `slot_index + 1`。** `slot_index=5` は GUI では「6.」と表示される。
+
+### 4.2 GUI で登録する
 
 1. GUI の **モデル選択エリア** で「編集」を押す。
 2. 「アップロード」で **ボイスチェンジャタイプに `RVC` を選ぶ**（ここを間違えると読み込めない）。
@@ -151,6 +207,24 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 4. 変換されない場合は **pass through** を押して、生声が出るか切り分ける。
    - 生声も出ない → 入力または出力デバイスの指定ミス
    - 生声は出るが変換されない → モデル未ロード、または `S. Thresh`（ノイズゲート）が高すぎる
+
+> **start は GUI で押す必要がある（実測）。** REST API の
+> `POST /api/local-voice-changer-interface/operation/start` だけでは音声入出力スレッドが起動するものの、
+> 変換スレッドは始まらず、ログに `bulk conversion process is not started` が出続ける。
+> 設計書の自動化要件は「起動・モデル登録まで」を対象とし、**変換開始だけは GUI 操作**とする（[02-operation.md](02-operation.md)）。
+
+### 6.1 変換の証跡を残す（server モード）
+
+server モードでは **録音** ボタンで入出力を WAV に保存できる（GUI は zip でダウンロードする）。
+
+| ファイル | 内容 |
+| :--- | :--- |
+| `vcClient.root\input.wav` | 変換前（マイク入力） |
+| `vcClient.root\output.wav` | 変換後 |
+| `vcClient.root\sample.wav` | サンプル入力を使った場合の送信音声 |
+
+いずれも **44.1 kHz / 32 bit float / モノラル**。録音のたびに上書きされるので、残す場合は `logs/verify/` へコピーする。
+**server モードでのみ有効**（client モードでは録音ボタンが使えない）。
 
 ## 7. 記録する
 

@@ -145,7 +145,47 @@
 | 切り替え時の運用上の制約 |  |
 | 音質調整はモデルごとに必要だったか |  |
 
-## 7. 最終判定
+## 7. 環境・基盤の実測記録（2026-10-28 / 自動化できる範囲）
+
+聴取評価（M1, M3〜M6）は人が必要だが、**その手前の基盤は機械的に確認できる**。実測値を残す。
+
+### 7.1 確認できたこと
+
+| # | 項目 | 方法 | 実測結果 |
+| :-- | :--- | :--- | :--- |
+| E1 | エディション / バージョン | `edition.txt` / `version.txt` | `cuda` / **2.1.4-alpha** |
+| E2 | API の稼働 | `GET /api/hello` | `Hello World! VCClient gives a cute voice to you!` |
+| E3 | 必須モジュール | `GET /api/module-manager/modules` | **10/10 件 `valid=true`**（約 3.3 GB） |
+| E4 | GPU 認識 | `nvidia-smi` / `GET /api/configuration-manager/gpu_info` | RTX 3060 Laptop / VRAM 6 GB / `device_id=0` |
+| E5 | モデル登録 | `Register-Model.ps1` → `POST /api/slot-manager/slots` | **`slot_index=5`** に `tsukuyomi-normal1.pth` を **0.3 秒**で登録 |
+| E6 | 自動判定された属性 | `params.json` | `pyTorchRVCv2` / **40000 Hz** / `hubert_base_l12` / `rmvpe_onnx` |
+| E7 | 2 個目の登録 | 同スクリプト（`tsukuyomi-normal2.pth`） | `slot_index=6` に登録（空きスロット自動選択が機能） |
+| E8 | モデルの GPU 常駐 | `nvidia-smi` | VRAM 使用 **約 2.6 GB**（モデル読込後） |
+| E9 | 変換スレッドの起動 | GUI の **start** | ログに `start_convert_chunk_bulk called`。GPU 使用率が **33〜42 %** まで上昇 |
+| E10 | プロセス安定性（2 分 / 1 分） | `Test-Stability.ps1` | 完走。レポート `reports/stability-*.md` |
+
+### 7.2 確認できなかったこと（人・機材が必要）
+
+| 項目 | 理由 | 次に必要なこと |
+| :--- | :--- | :--- |
+| 変換音の聴取（M1, M3〜M6） | 評価担当が不在 | Phase 2 の評価シートを実施 |
+| 変換音の録音（客観証跡） | **マイク入力が無音**（`input.wav` = -90.7 dB）。USB オーディオ IF `マイク (3- AT-UMX3)` が PnP Status=Unknown | オーディオ IF を接続し、`input.wav` が -40 dB 以上になることを確認 |
+| オフライン変換（`convert_file`） | **2.1.4-alpha の不具合**で常に 500（`Timer.__init__() got an unexpected keyword argument 'enable'`） | 録音で代替（[03-troubleshooting.md](03-troubleshooting.md)） |
+| 10 分連続運用（M2） | 発話が必要 | マイク接続後に `Test-Stability.ps1` で実施 |
+
+### 7.3 判明した仕様（運用に影響するもの）
+
+| 事項 | 内容 |
+| :--- | :--- |
+| GUI / API のポート | **18000**（`/api/hello` がヘルスチェック） |
+| スロット番号 | **API は 0 始まり / GUI は 1 始まり**（`slot_index=5` → GUI「6.」） |
+| モデル実体 | `vcClient.root\model_dir\<slot_index>\`（`params.json` + モデル） |
+| 変換開始 | **GUI の start が必須**。REST 単独では `bulk conversion process is not started` |
+| 録音 | **server モードのみ**。`input.wav` / `output.wav` を `vcClient.root` に 44.1 kHz / 32 bit float で保存 |
+| ダミー入力 | `set_dummy_input` は server モード専用。GUI の「サンプル」で送信する |
+| 設定の保存 | スロット固有値（TUNE / INDEX / CHUNK / F0）は REST で変更不可。GUI で設定 |
+
+## 8. 最終判定
 
 - [ ] M1〜M6 をすべて満たした
 - [ ] 設定・導入手順書（docs/00〜06）が現状と一致している

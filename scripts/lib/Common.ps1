@@ -47,6 +47,46 @@ function Get-SettingValue {
     return $current
 }
 
+function Invoke-VcApi {
+    # PowerShell 5.1 の Invoke-RestMethod は JSON の文字コードを誤認して日本語が化ける。
+    # 生バイト列を UTF-8 としてデコードしてから ConvertFrom-Json する。
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [ValidateSet('GET', 'POST', 'PUT', 'DELETE')][string]$Method = 'GET',
+        $Body = $null,
+        [int]$TimeoutSec = 60
+    )
+    $params = @{
+        Uri         = $Uri
+        Method      = $Method
+        UseBasicParsing = $true
+        TimeoutSec  = $TimeoutSec
+    }
+    if ($null -ne $Body) {
+        $json = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 10 }
+        $params['Body'] = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $params['ContentType'] = 'application/json; charset=utf-8'
+    }
+    $response = Invoke-WebRequest @params
+    $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    return ($text | ConvertFrom-Json)
+}
+
+function Get-ObjectProperty {
+    # Set-StrictMode 下では存在しないプロパティの参照が例外になる。
+    # API のレスポンスはスロットの状態によってキーが欠けることがあるため、明示的に安全に読む。
+    param(
+        $Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Default = $null
+    )
+    if ($null -eq $Object) { return $Default }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $Default }
+    return $prop.Value
+}
+
 function Write-Step {
     param([Parameter(Mandatory = $true)][string]$Message)
     Write-Host ''
