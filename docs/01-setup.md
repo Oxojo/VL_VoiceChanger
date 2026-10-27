@@ -4,22 +4,34 @@
 
 ---
 
-## 1. エディションを選ぶ
+## 1. どの配布物を落とすか
 
-VC Client は v2.2.1 以降、エディションごとに対応モデルが異なる。**RVC を使うなら `cuda` か `onnx` を選ぶ。**
+**公式 README の「エディション対応表」と、実際に公開されている配布ファイルは別物。** 落とすファイル名で判断する。
 
-| エディション | プラットフォーム | RVC 対応 | 選定基準 |
-| :--- | :--- | :--- | :--- |
-| `cuda` | Windows | **対応** | NVIDIA GPU がある場合の第一候補 |
-| `onnx` | Windows / Mac(m1) | **対応** | NVIDIA が無い / DirectML を使う場合 |
-| `std` | Windows / Mac / Linux | **非対応** | 本企画では使わない |
+2026-10 時点で `wok000/vcclient000` に公開されている Windows 用は次の 3 つ。
 
-> 対応表は公式 README の記載に基づく。**導入時点の最新版で再確認する。**
-> https://github.com/w-okada/voice-changer
+| 配布ファイル | 版 | サイズ目安 | RVC | 用途 |
+| :--- | :--- | :--- | :--- | :--- |
+| `vcclient_win_cuda_2.1.4-alpha.zip` | 2.1.4-alpha | 約 3.5 GB | **対応** | NVIDIA GPU がある場合の第一候補 |
+| `vcclient_win_dml_2.1.4-alpha.zip` | 2.1.4-alpha | 約 2.8 GB | **対応** | NVIDIA 以外 / DirectML を使う場合 |
+| `vcclient_std_win_2.2.2-beta_only_beatrice.zip` | 2.2.2-beta | 約 128 MB | **非対応** | Beatrice 専用。本企画では使わない |
+
+> **注意**: 版番号が新しい 2.2.2-beta の Windows 版は **Beatrice 専用（RVC 非対応）**。番号の大きさで選ぶと RVC が使えない。
+> 配布状況は変わるため、**導入時に https://huggingface.co/wok000/vcclient000 で必ず再確認する。**
+
+選定の目安:
+
+| 環境 | 選ぶファイル |
+| :--- | :--- |
+| NVIDIA GPU（VRAM 4 GB 以上） | `vcclient_win_cuda_*` |
+| NVIDIA 以外 / CUDA が不安定 | `vcclient_win_dml_*` |
+| GPU なし | `vcclient_win_dml_*` で CPU 動作、または本企画の対象外と判断 |
+
+本リポジトリの検証機（RTX 3060 Laptop / VRAM 6 GB）では **`cuda` 版**を第一候補とする。
 
 ## 2. ダウンロードと配置
 
-1. https://huggingface.co/wok000/vcclient000 から目的のエディションの zip を取得する。
+1. https://huggingface.co/wok000/vcclient000 から上表の zip を取得する（3 GB 前後あるため回線に注意）。
 2. **英数字のみの浅いパス**へ解凍する。
    - 良い例: `C:\Tools\vcclient_win_cuda`
    - 避ける: `C:\Users\山田\OneDrive\...\ボイスチェンジャー\`（Unicode・同期フォルダ）

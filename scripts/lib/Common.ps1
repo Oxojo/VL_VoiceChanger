@@ -200,11 +200,43 @@ function Get-GpuInfo {
     return @($gpus)
 }
 
-function Find-ProcessByPattern {
-    param([Parameter(Mandatory = $true)][string]$Pattern)
-    try {
-        return @(Get-Process -Name $Pattern -ErrorAction Stop)
-    } catch {
-        return @()
+function Find-VcClientProcesses {
+    <#
+        VC Client のプロセスを探す。
+        exe 名は版によって変わる（MMVC_Client / MMVCServerSIO など）ため、
+        まず vcClient.root 配下の実行ファイルから起動されたプロセスを Path で判定し、
+        見つからなければ名前パターンでフォールバックする。
+    #>
+    param(
+        [string]$Root = '',
+        [string]$Names = 'MMVC_Client*,MMVCServerSIO*,vcclient*'
+    )
+
+    $byId = @{}
+
+    if (-not [string]::IsNullOrWhiteSpace($Root) -and (Test-Path -LiteralPath $Root)) {
+        $normRoot = $Root.Replace('\', '/').TrimEnd('/')
+        foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                $path = $p.Path
+                if ($path -and $path.Replace('\', '/').StartsWith($normRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $byId[$p.Id] = $p
+                }
+            } catch {
+                # 他ユーザーのプロセスは Path を読めない。無視する。
+            }
+        }
     }
+
+    if ($byId.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($Names)) {
+        foreach ($pattern in $Names.Split(',')) {
+            $pattern = $pattern.Trim()
+            if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+            foreach ($p in @(Get-Process -Name $pattern -ErrorAction SilentlyContinue)) {
+                $byId[$p.Id] = $p
+            }
+        }
+    }
+
+    return @($byId.Values | Sort-Object -Property WorkingSet64 -Descending)
 }

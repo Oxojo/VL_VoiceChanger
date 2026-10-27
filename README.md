@@ -33,8 +33,10 @@
 ## 前提
 
 - Windows 10/11 + PowerShell 5.1 以上
-- VC Client **v2.2.1 以降の `cuda` 版または `onnx` 版**
-  - 同バージョン以降の `std` 版は **RVC 非対応**。取り違えると RVC モデルを読み込めない。
+- VC Client の **RVC 対応ビルド**（`cuda` または `dml`）
+  - 2026-10 時点で公開されている Windows 用は `vcclient_win_cuda_2.1.4-alpha.zip` / `vcclient_win_dml_2.1.4-alpha.zip`
+  - **2.2.2-beta の Windows 版は Beatrice 専用で RVC 非対応**。版番号の大きさで選ばない
+  - 詳細は [docs/01-setup.md](docs/01-setup.md) を参照
 - モデルファイル（`.pth` / `.index`）は各自で用意し、**リポジトリにはコミットしない**（`models/` は除外済み）
 
 ## ディレクトリ構成

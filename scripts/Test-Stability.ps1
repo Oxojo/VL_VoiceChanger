@@ -65,8 +65,9 @@ if (Test-Path -LiteralPath $ConfigPath) {
 if ($DurationMinutes -le 0) { $DurationMinutes = [int](Get-SettingValue -Object $config -Path 'stabilityTest.durationMinutes' -Default 10) }
 if ($SampleSeconds -le 0) { $SampleSeconds = [int](Get-SettingValue -Object $config -Path 'stabilityTest.sampleSeconds' -Default 5) }
 if ([string]::IsNullOrWhiteSpace($ProcessName)) {
-    $ProcessName = [string](Get-SettingValue -Object $config -Path 'stabilityTest.processName' -Default 'MMVC_Client*')
+    $ProcessName = [string](Get-SettingValue -Object $config -Path 'stabilityTest.processName' -Default 'MMVC_Client*,MMVCServerSIO*,vcclient*')
 }
+$vcRoot = Resolve-RepoPath -Path ([string](Get-SettingValue -Object $config -Path 'vcClient.root' -Default ''))
 $port = [int](Get-SettingValue -Object $config -Path 'vcClient.port' -Default 18888)
 if ([string]::IsNullOrWhiteSpace($Url)) { $Url = "http://localhost:$port/" }
 
@@ -106,13 +107,13 @@ function Get-GpuSample {
 Write-Host ''
 Write-Host ' VL_VoiceChanger / 安定性検証' -ForegroundColor White
 Write-Host " 予定時間: $DurationMinutes 分 / サンプリング: $SampleSeconds 秒" -ForegroundColor Gray
-Write-Host " 監視対象: プロセス '$ProcessName' / $Url" -ForegroundColor DarkGray
+Write-Host " 監視対象: VC Client プロセス（自動判定） / $Url" -ForegroundColor DarkGray
 
-$initialProcs = @(Find-ProcessByPattern -Pattern $ProcessName)
+$initialProcs = @(Find-VcClientProcesses -Root $vcRoot -Names $ProcessName)
 $initialPort = Test-PortOpen -Port $port -TimeoutMilliseconds 1000
 if ($initialProcs.Count -eq 0 -and -not $initialPort) {
     Write-Host ''
-    Write-Err "VC Client が起動していません（プロセス '$ProcessName' もポート $port も応答なし）。"
+    Write-Err "VC Client が起動していません（プロセスもポート $port も応答なし）。"
     Write-Info '先に scripts\Start-VoiceChanger.ps1 を実行し、[start] を押して変換を開始してください。'
     if (-not $AllowNotRunning) {
         Write-Info '監視だけ行いたい場合は -AllowNotRunning を付けて実行してください。'
@@ -164,7 +165,7 @@ while ($sw.Elapsed.TotalSeconds -lt $totalSeconds) {
     $elapsed = $sw.Elapsed.TotalSeconds
 
     # --- プロセス
-    $procs = @(Find-ProcessByPattern -Pattern $ProcessName)
+    $procs = @(Find-VcClientProcesses -Root $vcRoot -Names $ProcessName)
     $proc = $procs | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 1
     $procOk = $null -ne $proc
     $cpuPct = $null
@@ -209,8 +210,8 @@ while ($sw.Elapsed.TotalSeconds -lt $totalSeconds) {
 
     # --- 状態遷移の記録
     if ($null -ne $lastProcOk -and $lastProcOk -ne $procOk) {
-        if ($procOk) { Add-Incident -Kind 'プロセス復帰' -Detail "プロセス '$ProcessName' を再検出" -ElapsedSeconds $elapsed }
-        else { Add-Incident -Kind 'プロセス消失' -Detail "プロセス '$ProcessName' が終了した" -ElapsedSeconds $elapsed }
+        if ($procOk) { Add-Incident -Kind 'プロセス復帰' -Detail 'VC Client のプロセスを再検出' -ElapsedSeconds $elapsed }
+        else { Add-Incident -Kind 'プロセス消失' -Detail 'VC Client のプロセスがすべて終了した' -ElapsedSeconds $elapsed }
     }
     if ($null -ne $lastPortOk -and $lastPortOk -ne $portOk) {
         if ($portOk) { Add-Incident -Kind 'GUI 復帰' -Detail "ポート $port が応答を再開" -ElapsedSeconds $elapsed }
@@ -322,7 +323,7 @@ $L.Add("- 実施日時: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))")
 $L.Add("- プロファイル: $(if ($Profile) { $Profile } else { '（未指定）' })")
 $L.Add("- 目標時間: $DurationMinutes 分 / 実測: $actualSeconds 秒")
 $L.Add("- サンプリング間隔: $SampleSeconds 秒（$sampleCount サンプル）")
-$L.Add("- 監視対象: プロセス ``$ProcessName`` / ``$Url``")
+$L.Add("- 監視対象: VC Client プロセス（自動判定: ``$ProcessName``）/ ``$Url``")
 $L.Add("- 生ログ: ``$csvPath``")
 $L.Add('')
 $L.Add('## 自動計測の結果')

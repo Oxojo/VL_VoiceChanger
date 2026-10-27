@@ -15,6 +15,6 @@
   "stabilityTest": {
     "durationMinutes": 10,
     "sampleSeconds": 5,
-    "processName": "MMVC_Client*"
+    "processName": "MMVC_Client*,MMVCServerSIO*,vcclient*"
   }
 }

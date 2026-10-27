@@ -28,15 +28,25 @@
 
 ### PC
 
+> 下記は `Check-Environment.ps1` を **2026-10-28 に検証機で実行した実測値**。別の PC を使う場合は上書きする。
+
 | 項目 | 実測 / 型番 | 備考 |
 | :--- | :--- | :--- |
-| 機材の所有者 |  | 部員個人 / サークル共用 |
-| 型番 |  |  |
-| CPU |  |  |
-| メモリ |  |  |
-| GPU / VRAM |  | RVC は VRAM 4 GB 以上が望ましい |
-| OS / ビルド |  |  |
-| 空きディスク |  | モデル 1 件あたり数百 MB〜 |
+| 機材の所有者 | （未記入） | 部員個人 / サークル共用 |
+| 型番 | （未記入） | ノート PC の場合、型番も残す |
+| CPU | 12th Gen Intel(R) Core(TM) i7-12700H（14 コア / 20 スレッド） |  |
+| メモリ | 15.6 GB |  |
+| GPU / VRAM | NVIDIA GeForce RTX 3060 Laptop GPU / 6 GB（driver 591.86） | RVC は VRAM 4 GB 以上が望ましい |
+| OS / ビルド | Windows 11 Home / 10.0.26200 (Build 26200) |  |
+| 空きディスク | 32.5 GB | VC Client 3.5 GB ＋ 展開後 ＋ モデルで **10 GB 以上**は確保したい |
+| 内蔵オーディオ | C-Media(R) Audio（マイク / スピーカー） | USB マイク・ヘッドホンも認識済み |
+
+**この PC で検出された音声デバイスの注意点**
+
+- **VB-Audio Voicemeeter がインストールされている**（`Voicemeeter In/Out *` が多数）。
+  仮想デバイスが既定になっていると「音が出ない」「二重に聞こえる」の原因になる。VC Client の input / output は **物理デバイス名（マイク / スピーカー）を明示指定する**。
+- 「マイク (Virtual Desktop Audio)」「AI Noise-cancelling Input/Output (ASUS Utility)」も存在する。**名前が似ているため、選び間違えに注意。**
+- 詳細な一覧は `reports/environment-latest.md` を参照。
 
 ### 音声機器
 
@@ -58,8 +68,9 @@
 | 項目 | 記録内容 |
 | :--- | :--- |
 | ソフト名 | VC Client（w-okada/voice-changer） |
-| エディション | cuda / onnx（**std は RVC 非対応**） |
-| バージョン | 例: 2.2.2-beta |
+| 配布ファイル名 | 例: `vcclient_win_cuda_2.1.4-alpha.zip`（**ファイル名をそのまま記録する**） |
+| エディション | cuda / dml（**std は RVC 非対応**） |
+| バージョン | 例: 2.1.4-alpha |
 | ダウンロード元 URL | https://huggingface.co/wok000/vcclient000 |
 | 取得日 |  |
 | 配置パス | 例: `C:\Tools\vcclient_win_cuda` |
