@@ -77,6 +77,14 @@ try {
     $gitHead = (& git rev-parse --short HEAD 2>&1 | Out-String).Trim()
     $gitBranch = (& git branch --show-current 2>&1 | Out-String).Trim()
     $pyVersion = (& $PythonPath -c "import platform, torch; print(platform.python_version(), 'torch', torch.__version__, 'cuda', torch.cuda.is_available())" 2>&1 | Out-String).Trim()
+    # PowerShell 5.1（.NET Framework）には [System.IO.Path]::GetRelativePath が無い
+    function Get-RelPath([string]$Path) {
+        $full = (Resolve-Path -LiteralPath $Path).Path
+        if ($full.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $full.Substring($repoRoot.Length).TrimStart('\', '/')
+        }
+        return $full
+    }
 
     $lines = @(
         '# 自前エンジン 動作確認レポート',
@@ -122,9 +130,9 @@ try {
         '',
         '## 7. 出力ファイル',
         '',
-        "- 一括変換: ``$([System.IO.Path]::GetRelativePath($repoRoot, $outWav))``（Git 管理外）",
-        "- 分割変換: ``$([System.IO.Path]::GetRelativePath($repoRoot, $chunkWav))``（Git 管理外）",
-        "- 計測 JSON: ``$([System.IO.Path]::GetRelativePath($repoRoot, $outJson))``（Git 管理外）",
+        "- 一括変換: ``$(Get-RelPath $outWav)``（Git 管理外）",
+        "- 分割変換: ``$(Get-RelPath $chunkWav)``（Git 管理外）",
+        "- 計測 JSON: ``$(Get-RelPath $outJson)``（Git 管理外）",
         '',
         '## 8. 判定',
         '',
@@ -141,7 +149,7 @@ try {
 
     $reportFull = Join-Path $repoRoot $ReportPath
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reportFull) | Out-Null
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $utf8 = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllText($reportFull, ($lines -join [Environment]::NewLine), $utf8)
     Write-Host "レポート: $reportFull"
 }

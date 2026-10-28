@@ -184,6 +184,27 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """ブラウザ UI を起動する。"""
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "エラー: Web UI に必要なパッケージがありません。\n"
+            "  .\\.venv\\Scripts\\python.exe -m pip install fastapi uvicorn python-multipart\n"
+            "を実行してください。",
+            file=sys.stderr,
+        )
+        return 2
+
+    from .web.server import app
+
+    url = f"http://{args.host}:{args.port}"
+    print(f"ブラウザで {url} を開いてください（停止は Ctrl+C）")
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level, access_log=False)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="engine", description="自前 RVC v2 音声変換エンジン")
     p.add_argument("--version", action="version", version=f"engine {__version__}")
@@ -229,6 +250,12 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pb.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
     pb.set_defaults(func=cmd_bench)
+
+    ps = sub.add_parser("serve", help="ブラウザ UI を起動する")
+    ps.add_argument("--host", default="127.0.0.1", help="待ち受けアドレス（既定はこの PC のみ）")
+    ps.add_argument("--port", type=int, default=8765, help="待ち受けポート（既定 8765）")
+    ps.add_argument("--log-level", default="warning", help="uvicorn のログレベル")
+    ps.set_defaults(func=cmd_serve)
 
     return p
 

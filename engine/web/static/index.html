@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VL VoiceChanger — 自前エンジン</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>VL <span>VoiceChanger</span></h1>
+  <div class="subtitle">RVC v2 を自前実装したリアルタイム音声変換エンジン</div>
+  <div class="row" style="margin-left:auto">
+    <span id="healthBadge" class="badge">接続中…</span>
+    <span id="modelBadge" class="badge hidden"></span>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>1. 入力音声</h2>
+      <div id="dropzone" class="dropzone">
+        <strong>ここに音声ファイルをドロップ</strong><br>
+        <span class="hint">またはクリックして選択（WAV / FLAC / OGG / MP3）</span>
+        <input id="fileInput" type="file" accept="audio/*,.wav,.flac,.ogg,.mp3" class="hidden">
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="recordBtn" class="rec">● マイクで録音</button>
+        <span id="recordTime" class="hint hidden">00:00</span>
+        <span style="margin-left:auto" class="hint">録音は 16 kHz モノラルに変換して送信します</span>
+      </div>
+      <div id="inputInfo" class="hint" style="margin-top:10px">まだ音声がありません</div>
+      <canvas id="inputWave" class="wave" style="margin-top:10px"></canvas>
+      <audio id="inputAudio" controls class="hidden"></audio>
+    </div>
+
+    <div class="card">
+      <h2>2. 変換設定</h2>
+      <div class="grid-2">
+        <label class="field wide">モデル
+          <select id="modelSelect"></select>
+        </label>
+        <label class="field">デバイス
+          <select id="deviceSelect">
+            <option value="auto">自動（GPU があれば使う）</option>
+            <option value="cuda">CUDA（GPU）</option>
+            <option value="cpu">CPU</option>
+          </select>
+        </label>
+        <label class="field">出力サンプリングレート
+          <select id="outputSr">
+            <option value="0">モデル準拠</option>
+            <option value="48000">48 kHz</option>
+            <option value="44100">44.1 kHz</option>
+            <option value="32000">32 kHz</option>
+            <option value="24000">24 kHz</option>
+            <option value="16000">16 kHz</option>
+          </select>
+        </label>
+        <label class="field wide">ピッチ（半音）
+          <span class="range-row">
+            <input id="pitch" type="range" min="-24" max="24" step="1" value="0">
+            <span id="pitchValue" class="range-value">0</span>
+          </span>
+        </label>
+        <label class="field wide">音量を入力に寄せる強さ（RMS ミックス）
+          <span class="range-row">
+            <input id="rmsMix" type="range" min="0" max="1" step="0.05" value="0.25">
+            <span id="rmsValue" class="range-value">0.25</span>
+          </span>
+        </label>
+        <label class="field">話者 ID
+          <input id="speaker" type="number" min="0" value="0">
+        </label>
+        <label class="field">乱数シード
+          <input id="seed" type="number" value="1234" title="-1 で毎回ランダム">
+        </label>
+        <label class="field wide">変換モード
+          <span class="row">
+            <label class="row" style="gap:6px"><input type="radio" name="mode" value="batch" checked> 一括（品質優先）</label>
+            <label class="row" style="gap:6px"><input type="radio" name="mode" value="chunk"> 分割（ライブ想定・速度計測）</label>
+          </span>
+        </label>
+      </div>
+
+      <div id="chunkOptions" class="grid-2 hidden" style="margin-top:12px">
+        <label class="field">hop（秒）
+          <input id="hop" type="number" min="0.1" max="2" step="0.05" value="0.5">
+        </label>
+        <label class="field">context（秒）
+          <input id="context" type="number" min="0" max="1" step="0.05" value="0.15">
+        </label>
+        <label class="field">crossfade（秒）
+          <input id="crossfade" type="number" min="0" max="0.2" step="0.01" value="0.05">
+        </label>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <button id="convertBtn" class="primary" disabled>変換する</button>
+        <button id="cancelBtn" class="ghost hidden">中断</button>
+        <span id="convertHint" class="hint">音声を選ぶと変換できます</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>3. 結果</h2>
+      <div id="idlePanel" class="hint">まだ変換していません。</div>
+
+      <div id="progressPanel" class="hidden">
+        <div class="status-line">
+          <span id="stageText">待機中</span>
+          <span id="progressPct">0 %</span>
+        </div>
+        <div class="progress"><div id="progressBar"></div></div>
+        <div class="hint" style="margin-top:6px"><span id="elapsedText"></span></div>
+      </div>
+
+      <div id="errorBox" class="error-box hidden" style="margin-top:12px"></div>
+
+      <div id="resultPanel" class="hidden" style="margin-top:14px">
+        <div class="row">
+          <strong>変換後の音声</strong>
+          <a id="downloadLink" class="badge" href="#" download="converted.wav">WAV をダウンロード</a>
+        </div>
+        <audio id="outputAudio" controls></audio>
+        <canvas id="outputWave" class="wave" style="margin-top:10px"></canvas>
+        <table class="metrics" style="margin-top:14px">
+          <tbody id="metricsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>履歴</h2>
+      <ul id="historyList" class="jobs"><li class="hint">まだありません</li></ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  変換はこの PC 上の Python プロセスで実行されます（音声を外部に送信しません）。
+</footer>
+
+<div id="toast" class="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

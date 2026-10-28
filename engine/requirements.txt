@@ -9,3 +9,8 @@ onnxruntime>=1.20
 #   .venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu126 ^
 #       --force-reinstall --no-deps "torch==2.14.1+cu126"
 torch>=2.6
+
+# ブラウザ UI（python -m engine serve）を使う場合
+fastapi>=0.110
+uvicorn>=0.30
+python-multipart>=0.0.9

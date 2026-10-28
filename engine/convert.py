@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -26,6 +27,9 @@ from .audio import SAMPLE_RATE, highpass, load_mono, match_rms, resample, save_w
 from .config import resolve_asset
 from .features import ContentVec, RMVPE
 from .model import ModelInfo, build_model, load_checkpoint
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
 #: F0 の量子化レンジ（RVC 共通の定数）
 F0_MIN = 50.0
@@ -138,10 +142,25 @@ class VoiceConverter:
             return array[:frames]
         return np.pad(array, (0, frames - cur), mode="edge")
 
-    def convert_array(self, waveform16k: np.ndarray, options: ConvertOptions | None = None) -> tuple[np.ndarray, ConvertReport]:
-        """16 kHz モノラル波形を変換し、(波形, レポート) を返す。"""
+    def convert_array(
+        self,
+        waveform16k: np.ndarray,
+        options: ConvertOptions | None = None,
+        on_stage: "Callable[[str, float], None] | None" = None,
+    ) -> tuple[np.ndarray, ConvertReport]:
+        """16 kHz モノラル波形を変換し、(波形, レポート) を返す。
+
+        ``on_stage`` を渡すと、段階（f0 / contentvec / synth / post）と
+        おおよその進捗（0-1）が通知される。Web UI の進捗表示に使う。
+        """
         opt = options or ConvertOptions()
         timings: dict[str, float] = {}
+
+        def stage(name: str, progress: float) -> None:
+            if on_stage is not None:
+                on_stage(name, progress)
+
+        stage("start", 0.0)
 
         audio_in = np.asarray(waveform16k, dtype=np.float32)
         if audio_in.shape[0] < int(0.1 * SAMPLE_RATE):
@@ -163,6 +182,7 @@ class VoiceConverter:
         pitchf = f0.astype(np.float32)
         pitch = f0_to_coarse(pitchf)
         timings["f0"] = time.perf_counter() - t
+        stage("f0", 0.15)
 
         # --- 特徴量（50 fps → 100 fps）-----------------------------------
         t = time.perf_counter()
@@ -170,6 +190,7 @@ class VoiceConverter:
         feats_t = torch.from_numpy(feats)
         feats_t = F.interpolate(feats_t.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         timings["contentvec"] = time.perf_counter() - t
+        stage("contentvec", 0.35)
 
         # ContentVec のフレーム数は 20 ms 単位で切り捨てられるため、
         # p_len（10 ms 単位）に合わせて端を複製・切り詰める。
@@ -199,6 +220,7 @@ class VoiceConverter:
             out = self.model.infer(phone, lengths, pitch_t, pitchf_t, sid, generator=generator)
         audio_out = out[0, 0].detach().cpu().float().numpy()
         timings["synth"] = time.perf_counter() - t
+        stage("synth", 0.9)
 
         # --- 後処理 ------------------------------------------------------
         t = time.perf_counter()
@@ -212,6 +234,7 @@ class VoiceConverter:
         if out_sr != self.info.sample_rate:
             audio_out = resample(audio_out, self.info.sample_rate, out_sr)
         timings["post"] = time.perf_counter() - t
+        stage("post", 1.0)
 
         report = ConvertReport(
             input_seconds=float(audio.shape[0] / SAMPLE_RATE),

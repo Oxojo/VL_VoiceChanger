@@ -16,11 +16,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .audio import SAMPLE_RATE
 from .convert import ConvertOptions, VoiceConverter
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
 #: 変換器の内部フレーム長（16 kHz / 100 fps = 10 ms）
 FRAME = 160
@@ -44,6 +48,7 @@ class ChunkStats:
     audio_seconds: float = 0.0
     process_seconds: float = 0.0
     latencies: list[float] = field(default_factory=list)
+    canceled: bool = False
 
     @property
     def rtf(self) -> float:
@@ -75,7 +80,18 @@ class ChunkedConverter:
         self.converter = converter
         self.config = config or ChunkConfig()
 
-    def process(self, audio16k: np.ndarray, options: ConvertOptions | None = None) -> tuple[np.ndarray, ChunkStats]:
+    def process(
+        self,
+        audio16k: np.ndarray,
+        options: ConvertOptions | None = None,
+        on_progress: "Callable[[int, int], None] | None" = None,
+        should_stop: "Callable[[], bool] | None" = None,
+    ) -> tuple[np.ndarray, ChunkStats]:
+        """分割変換する。
+
+        ``on_progress(処理済み区間数, 全区間数)`` を区間ごとに呼ぶ。
+        ``should_stop()`` が True を返したらそこで打ち切る（Web UI の中断用）。
+        """
         cfg = self.config
         opt = options or ConvertOptions(seed=cfg.seed)
 
@@ -88,10 +104,15 @@ class ChunkedConverter:
 
         audio = np.asarray(audio16k, dtype=np.float32)
         total_frames = audio.shape[0] // FRAME
+        total_chunks = (total_frames + hop_frames - 1) // hop_frames
         stats = ChunkStats(audio_seconds=float(total_frames * FRAME / SAMPLE_RATE))
         pieces: list[np.ndarray] = []
 
         for start in range(0, total_frames, hop_frames):
+            if should_stop is not None and should_stop():
+                stats.canceled = True
+                break
+
             end = min(start + hop_frames, total_frames)
             ctx_start = max(0, start - ctx_frames)
             # 継ぎ目をクロスフェードするため、区間の末尾を少し先まで変換しておく
@@ -118,12 +139,17 @@ class ChunkedConverter:
 
             pieces.append(chunk)
             stats.chunks += 1
+            if on_progress is not None:
+                on_progress(stats.chunks, total_chunks)
 
         stats.process_seconds = float(sum(stats.latencies))
         if not pieces:
             return np.zeros(0, dtype=np.float32), stats
 
         joined = np.concatenate(pieces)
+        if stats.canceled:
+            return joined.astype(np.float32), stats
+
         expected = total_frames * samples_per_frame
         if joined.shape[0] < expected:
             joined = np.pad(joined, (0, expected - joined.shape[0]))

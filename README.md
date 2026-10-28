@@ -14,7 +14,7 @@
 | # | 成果物 | このリポジトリでの実体 |
 | :-- | :--- | :--- |
 | 1 | 動作する音声変換環境 | `config/settings.json` + `config/profiles/*.json` + VC Client 本体 + `engine/` |
-| 2 | 設定・導入手順書 | `docs/00`〜`docs/07` |
+| 2 | 設定・導入手順書 | `docs/00`〜`docs/08` |
 | 3 | 検証記録 | `reports/stability-*.md`、`reports/environment-*.md`、`docs/04-verification.md` |
 
 ## クイックスタート
@@ -56,9 +56,14 @@ py -3.12 -m venv .venv
 
 # 出力の F0・音量の確認
 .\.venv\Scripts\python.exe -m engine analyze -i logs\verify\own-ja.wav
+
+# ブラウザ UI で変換（http://127.0.0.1:8765）
+.\scripts\Start-Web.ps1
 ```
 
-詳細・実測値・制約は [docs/07-own-engine.md](docs/07-own-engine.md)。
+ブラウザ UI は音声のドロップ／マイク録音・設定・試聴・ダウンロードまでをブラウザで行える。
+詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
+[docs/07-own-engine.md](docs/07-own-engine.md)。
 
 ## 前提
 
@@ -78,8 +83,9 @@ VL_VoiceChanger/
 ├─ config/
 │  ├─ settings.json          # VC Client の場所・ポート・既定値
 │  └─ profiles/              # キャラクター別の設定（1 ファイル = 1 モデル）
-├─ docs/                     # 導入手順・運用・復旧・検証・モデル規約・自前エンジン
+├─ docs/                     # 導入手順・運用・復旧・検証・モデル規約・自前エンジン・Web UI
 ├─ engine/                   # 自前音声変換エンジン（Python / PyTorch / ONNX Runtime）
+│  └─ web/                   # ブラウザ UI（FastAPI + 静的ファイル）
 ├─ models/                   # モデル配置（Git 管理外）
 ├─ reports/                  # 検証レポート（Markdown はコミット対象）
 ├─ logs/                     # 生ログ CSV（Git 管理外）
@@ -91,6 +97,7 @@ VL_VoiceChanger/
    ├─ Set-VoiceProfile.ps1   # Phase 1: プロファイル適用（REST API）
    ├─ Test-Stability.ps1     # Phase 3: 10 分連続計測
    ├─ Convert-Audio.ps1      # 自前エンジンでの WAV 変換
+   ├─ Start-Web.ps1          # 自前エンジンのブラウザ UI を起動
    └─ lib/Common.ps1         # 共通関数
 ```
 

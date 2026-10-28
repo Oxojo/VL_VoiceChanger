@@ -163,6 +163,9 @@
 | E8 | モデルの GPU 常駐 | `nvidia-smi` | VRAM 使用 **約 2.6 GB**（モデル読込後） |
 | E9 | 変換スレッドの起動 | GUI の **start** | ログに `start_convert_chunk_bulk called`。GPU 使用率が **33〜42 %** まで上昇 |
 | E10 | プロセス安定性（2 分 / 1 分） | `Test-Stability.ps1` | 完走。レポート `reports/stability-*.md` |
+| E11 | 自前エンジンの GPU 推論 | `engine convert --device cuda` | 初回 7.12 秒（RTF 0.93）→ 2 回目以降 **2.07〜3.13 秒（RTF 0.27〜0.41）**。F0 追従 0.999 / 包絡 0.962 |
+| E12 | 自前エンジンの分割変換（GPU） | `engine bench --device cuda --hop 0.5` | 16 区間 / RTF **1.64〜2.08** / 区間遅延 最大 **1.20〜1.29 秒** → ライブ成立は**不可** |
+| E13 | ブラウザ UI からの変換 | `Start-Web.ps1` → `POST /api/jobs` | 一括・分割とも完走。履歴・メトリクス・WAV ダウンロードを確認 |
 
 ### 7.2 確認できなかったこと（人・機材が必要）
 
@@ -184,6 +187,27 @@
 | 録音 | **server モードのみ**。`input.wav` / `output.wav` を `vcClient.root` に 44.1 kHz / 32 bit float で保存 |
 | ダミー入力 | `set_dummy_input` は server モード専用。GUI の「サンプル」で送信する |
 | 設定の保存 | スロット固有値（TUNE / INDEX / CHUNK / F0）は REST で変更不可。GUI で設定 |
+
+### 7.4 自前エンジン / ブラウザ UI の実測（2026-10-28）
+
+`engine/` の自前実装（ContentVec + RMVPE の ONNX、RVC v2 合成器の PyTorch 実装）で、
+GPU（RTX 3060 Laptop / CUDA 13 系ドライバ + torch 2.14.1+cu126）の実測を取った。
+
+| 項目 | CPU | GPU |
+| :--- | ---: | ---: |
+| 一括変換（7.63 秒の音声） | 9.14 秒（RTF 1.20） | 2.07〜3.13 秒（RTF 0.27〜0.41、初回のみ 7.12 秒） |
+| 分割変換 16 区間（hop 0.5 秒） | 69.5 秒（RTF 9.11） | 12.5〜15.3 秒（RTF 1.64〜2.08） |
+| 区間あたり遅延（分割） | 平均 4,346 ms / 最大 4,670 ms | 平均 780〜990 ms / 最大 1.2〜2.1 秒 |
+
+- 品質は一括・分割で同等（F0 追従 0.999 / 包絡相関 0.96〜0.97）。分割は 10 ms フレーム単位の
+  切り出しと 50 ms のクロスフェードで、継ぎ目の跳びを全体平均と同程度まで抑えている。
+- **一括変換は GPU で実時間より速い**。ファイル変換・オフライン変換は実用域。
+- **分割変換はライブ未成立**。区間ごとの固定費（ContentVec の ONNX が CPU 実行）が支配的で、
+  0.5 秒区間に 0.8〜1.3 秒かかる。ライブ化には ContentVec の GPU 実行（ONNX Runtime GPU /
+  TensorRT）か、区間長を長くして遅延を許容する設計変更が必要。
+- ブラウザ UI（`engine/web`）から同じ変換を実行でき、履歴・数値・WAV 保存まで確認した。
+
+詳細: [07-own-engine.md](07-own-engine.md) / [08-web-ui.md](08-web-ui.md)
 
 ## 8. 最終判定
 
