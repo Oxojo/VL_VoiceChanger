@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from engine.audio import load_mono, resample, save_wav  # noqa: E402
-from engine.convert import f0_to_coarse, interpolate_unvoiced  # noqa: E402
+from engine.convert import ConvertOptions, VoiceConverter, f0_to_coarse, interpolate_unvoiced  # noqa: E402
 from engine.model.commons import weight_norm  # noqa: E402
 from engine.model.synthesizer import SynthesizerTrnMs768NSFsid  # noqa: E402
 
@@ -44,6 +46,44 @@ class TestF0(unittest.TestCase):
     def test_interpolate_all_unvoiced(self) -> None:
         out = interpolate_unvoiced(np.zeros(10, dtype=np.float32))
         self.assertTrue(np.all(out == 0))
+
+
+class TestConverterVoicing(unittest.TestCase):
+    """実モデル不要で、無声判定が合成器まで保存されることを確認する。"""
+
+    def convert(self, f0: np.ndarray, shift: int = 0):
+        converter = VoiceConverter.__new__(VoiceConverter)
+        converter.device = "cpu"
+        converter.info = SimpleNamespace(sample_rate=16000)
+        converter.rmvpe = Mock()
+        converter.rmvpe.infer.return_value = f0.copy()
+        converter.contentvec = Mock()
+        converter.contentvec.extract.return_value = np.zeros((1, 10, 768), dtype=np.float32)
+        converter.model = Mock()
+        converter.model.infer.return_value = torch.zeros(1, 1, 3200)
+        _, report = converter.convert_array(
+            np.zeros(3200, dtype=np.float32),
+            ConvertOptions(pitch_shift=shift, pad_samples=0, rms_mix=1.0, seed=None),
+        )
+        # 引数は phone / lengths / coarse pitch / continuous F0 / speaker。
+        return converter.model.infer.call_args.args, report
+
+    def test_consonants_stay_unvoiced_after_pitch_shift(self) -> None:
+        f0 = np.array([0.0] * 4 + [200.0] * 8 + [0.0] * 4 + [300.0] * 4, dtype=np.float32)
+        for shift in (0, 12, -12):
+            with self.subTest(shift=shift):
+                args, report = self.convert(f0, shift)
+                actual = args[3].numpy()[0]
+                np.testing.assert_array_equal(actual[f0 == 0], 0.0)
+                np.testing.assert_allclose(actual[f0 > 0], f0[f0 > 0] * 2 ** (shift / 12))
+                np.testing.assert_array_equal(args[2].numpy()[0], f0_to_coarse(actual))
+                self.assertAlmostEqual(report.f0_voiced_ratio, 0.6)
+
+    def test_all_unvoiced_stays_zero(self) -> None:
+        args, report = self.convert(np.zeros(20, dtype=np.float32))
+        np.testing.assert_array_equal(args[3].numpy(), 0.0)
+        self.assertEqual(report.f0_voiced_ratio, 0.0)
+        self.assertEqual(report.f0_median, 0.0)
 
 
 class TestAudio(unittest.TestCase):

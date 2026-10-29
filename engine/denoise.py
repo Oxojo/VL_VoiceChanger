@@ -97,11 +97,13 @@ def spectral_gate(
     # 完全に 0 にすると不自然なので下限を残す（弱い設定ほど多く残す）
     mask = np.maximum(mask, 0.02 + 0.06 * (1.0 - strength))
 
-    # 時間方向の平滑化（フレーム間の急変によるプツッという音を防ぐ）
+    # 音の立ち上がりは速く開き、減衰時はゆっくり閉じる。
+    # 上昇時も 0.35 で追従すると、短い子音の先頭を数フレーム削ってしまう。
     smooth = np.empty_like(mask)
     prev = mask[:, 0].copy()
     for i in range(mask.shape[1]):
-        prev = 0.65 * prev + 0.35 * mask[:, i]
+        follow = np.where(mask[:, i] > prev, 0.9, 0.35)
+        prev = prev + follow * (mask[:, i] - prev)
         smooth[:, i] = prev
 
     _, y = istft(spec * smooth, **istft_kw)
