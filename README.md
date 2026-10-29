@@ -15,7 +15,7 @@
 | # | 成果物 | このリポジトリでの実体 |
 | :-- | :--- | :--- |
 | 1 | 動作する音声変換環境 | `config/settings.json` + `config/profiles/*.json` + VC Client 本体 + `engine/` |
-| 2 | 設定・導入手順書 | `docs/00`〜`docs/09` |
+| 2 | 設定・導入手順書 | `docs/00`〜`docs/11` |
 | 3 | 検証記録 | `reports/stability-*.md`、`reports/environment-*.md`、`docs/04-verification.md` |
 
 ## クイックスタート
@@ -80,12 +80,16 @@ python -m vlvc serve
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
 
-### NeoShowcase 用の紹介ページ
+### NeoShowcase への公開（2 種類）
 
-`showcase/` に、NeoShowcase で公開するためのビルド不要な静的ショーケースページを収録している。
-音声変換 Web UI 本体ではなく、プロジェクトの目的・仕組み・実測値・現在地を紹介する公開ページ。
-NeoShowcase 管理画面では Static / Command、Artifact Path を `showcase`、SPA を No に設定する。
-詳しい手順と、変換 UI をそのまま公開しない理由は [docs/10-neoshowcase.md](docs/10-neoshowcase.md) を参照。
+| 公開するもの | 設定 | 手順 |
+| :--- | :--- | :--- |
+| プロジェクト紹介ページ（`showcase/`） | **Static / Command**、Artifact Path: `showcase`、SPA: No、ビルド不要 | [docs/10-neoshowcase.md](docs/10-neoshowcase.md) |
+| 音声変換 Web UI（`engine/web/`） | **Runtime / Dockerfile**、コンテナポート: **8080 / HTTP** | [docs/11-neoshowcase-runtime.md](docs/11-neoshowcase-runtime.md) |
+
+紹介ページは変換 API を持たない。変換サーバー用には Python 3.12・CPU 版 PyTorch の
+Dockerfile を同梱しているが、モデルの別途配置とアクセス制限が必要。
+両方公開する場合は別アプリとして登録する。**どちらも Buildpack の自動検出は使わない。**
 
 ## 前提
 
@@ -110,6 +114,8 @@ VL_VoiceChanger/
 ├─ engine/                   # 自前音声変換エンジン（Python / PyTorch / ONNX Runtime）
 │  └─ web/                   # ブラウザ UI（FastAPI + 静的ファイル）
 ├─ vlvc/                     # クロスプラットフォーム CLI（環境確認・起動・設定・計測）
+├─ showcase/                 # 公開用の静的紹介ページ（変換 API なし）
+├─ Dockerfile                # 変換 Web UI の CPU 版 Runtime 用
 ├─ models/                   # モデル配置（Git 管理外）
 ├─ reports/                  # 検証レポート（Markdown はコミット対象）
 ├─ logs/                     # 生ログ CSV（Git 管理外）

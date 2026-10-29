@@ -28,5 +28,8 @@ vlvc = "vlvc.cli:main"
 [tool.setuptools.packages.find]
 include = ["engine*", "vlvc*"]
 
+[tool.setuptools.package-data]
+"engine.web" = ["static/*.html", "static/*.css", "static/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
