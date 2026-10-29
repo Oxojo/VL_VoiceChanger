@@ -1,0 +1,16 @@
+# モデル・音声・個人の検証ログをビルドサーバーへ送らない。
+.git
+.venv
+**/__pycache__
+**/*.pyc
+*.egg-info
+models
+modules
+logs
+reports
+tests
+docs
+build
+dist
+.env
+.env.*

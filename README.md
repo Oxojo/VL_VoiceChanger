@@ -80,6 +80,12 @@ python -m vlvc serve
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
 
+### NeoShowcase への配置
+
+**Runtime / Dockerfile** を選び、コンテナの **8080 番ポート**へ転送する。
+Static 配信では変換 API が動かない。Python 3.12・CPU 版 PyTorch の Dockerfile を同梱。
+モデルの配置と公開前のアクセス制限については [docs/10-neoshowcase.md](docs/10-neoshowcase.md) を参照。
+
 ## 前提
 
 - Python 3.10 以上（検証機は 3.12.10）
