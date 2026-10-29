@@ -57,11 +57,15 @@ py -3.12 -m venv .venv
 # 出力の F0・音量の確認
 .\.venv\Scripts\python.exe -m engine analyze -i logs\verify\own-ja.wav
 
+# ノイズ除去（前処理）: 強さ 0〜1 / 電源ハム 50 or 60 Hz
+.\.venv\Scripts\python.exe -m engine denoise -i logs\verify\input.wav -o logs\verify\input-clean.wav --strength 0.7 --dehum 50
+
 # ブラウザ UI で変換（http://127.0.0.1:8765）
 .\scripts\Start-Web.ps1
 ```
 
 ブラウザ UI は音声のドロップ／マイク録音・設定・試聴・ダウンロードまでをブラウザで行える。
+ノイズ除去・ハム除去も画面から指定できる。
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
 

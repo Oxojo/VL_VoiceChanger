@@ -249,6 +249,8 @@ function collectForm() {
   form.append("pitch", $("pitch").value);
   form.append("speaker", $("speaker").value || "0");
   form.append("rms_mix", $("rmsMix").value);
+  form.append("denoise", $("denoise").value);
+  form.append("dehum", $("dehum").value);
   form.append("seed", $("seed").value || "1234");
   form.append("output_sr", $("outputSr").value);
   form.append("mode", document.querySelector('input[name="mode"]:checked').value);
@@ -372,6 +374,14 @@ function renderMetrics(job) {
     add("調波性", `${fmt(m.harmonicity_in, 3)} → ${fmt(m.harmonicity_out, 3)}`);
     add("ピーク / クリップ", `${fmt(m.peak_out, 3)} / ${m.clipped ? "あり" : "なし"}`, m.clipped ? "bad" : "good");
   }
+  if (m.noise_floor_in_db !== undefined && m.noise_floor_out_db !== undefined) {
+    const delta = m.noise_floor_out_db - m.noise_floor_in_db;
+    add("ノイズフロア（入力 → 出力）", `${fmt(m.noise_floor_in_db, 1)} → ${fmt(m.noise_floor_out_db, 1)} dBFS`, delta <= -3 ? "good" : "");
+  }
+  if (job.request.denoise > 0 || job.request.dehum > 0) {
+    const hum = job.request.dehum > 0 ? ` / ハム ${job.request.dehum} Hz` : "";
+    add("ノイズ除去", `強さ ${fmt(job.request.denoise, 2)}${hum}`);
+  }
   add("デバイス", job.request.device.toUpperCase());
 
   $("metricsBody").innerHTML = rows.join("");
@@ -491,6 +501,7 @@ async function init() {
   // 設定
   $("pitch").addEventListener("input", () => { $("pitchValue").textContent = $("pitch").value; });
   $("rmsMix").addEventListener("input", () => { $("rmsValue").textContent = Number($("rmsMix").value).toFixed(2); });
+  $("denoise").addEventListener("input", () => { $("denoiseValue").textContent = Number($("denoise").value).toFixed(2); });
   document.querySelectorAll('input[name="mode"]').forEach((radio) => {
     radio.addEventListener("change", () => {
       const chunk = document.querySelector('input[name="mode"]:checked').value === "chunk";

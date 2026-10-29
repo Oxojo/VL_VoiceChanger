@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from ..audio import SAMPLE_RATE, load_mono, resample, save_wav
 from ..config import REPO_ROOT
 from ..convert import ConvertOptions, VoiceConverter
+from ..denoise import noise_floor_db
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 
@@ -47,6 +48,7 @@ STAGE_LABELS = {
     "queued": "待機中",
     "loading": "モデル読み込み中",
     "start": "前処理中",
+    "denoise": "ノイズ除去中",
     "f0": "ピッチ推定中",
     "contentvec": "特徴量抽出中",
     "synth": "音声合成中",
@@ -272,6 +274,8 @@ class JobManager:
                 rms_mix=req["rms_mix"],
                 seed=req["seed"],
                 output_sr=req["output_sr"],
+                denoise=req.get("denoise", 0.0),
+                dehum=req.get("dehum", 0.0),
             )
 
             job.stage = STAGE_LABELS["start"]
@@ -337,6 +341,8 @@ class JobManager:
                 f_in = conv.rmvpe.infer(wav)
                 f_out = conv.rmvpe.infer(out16)
                 job.metrics = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in compare(wav, out16, f_in, f_out).items()}
+                job.metrics["noise_floor_in_db"] = round(noise_floor_db(wav, SAMPLE_RATE), 1)
+                job.metrics["noise_floor_out_db"] = round(noise_floor_db(out16, SAMPLE_RATE), 1)
                 if req["mode"] == "chunk":
                     mean_jump, max_jump = boundary_jumps(out, sr_out, req["hop"])
                     job.metrics["boundary_jump_mean"] = round(mean_jump, 4)
@@ -446,6 +452,8 @@ async def create_job(
     hop: float = Form(0.5),
     context: float = Form(0.15),
     crossfade: float = Form(0.05),
+    denoise: float = Form(0.0),
+    dehum: float = Form(0.0),
     metrics: bool = Form(True),
 ) -> JSONResponse:
     model_path(model)  # 存在しなければ 404 を返す
@@ -456,6 +464,8 @@ async def create_job(
         raise HTTPException(status_code=400, detail="device は cpu / cuda / auto のいずれかです")
     if mode not in {"batch", "chunk"}:
         raise HTTPException(status_code=400, detail="mode は batch / chunk のいずれかです")
+    if float(dehum) not in {0.0, 50.0, 60.0}:
+        raise HTTPException(status_code=400, detail="dehum は 0 / 50 / 60 のいずれかです")
 
     request = {
         "model": model,
@@ -469,6 +479,8 @@ async def create_job(
         "hop": max(0.1, min(2.0, float(hop))),
         "context": max(0.0, min(1.0, float(context))),
         "crossfade": max(0.0, min(0.2, float(crossfade))),
+        "denoise": max(0.0, min(1.0, float(denoise))),
+        "dehum": float(dehum),
         "metrics": bool(metrics),
     }
 
@@ -479,9 +491,22 @@ async def create_job(
 
 
 # ------------------------------------------------------------------ 静的配信
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+class NoCacheStaticFiles(StaticFiles):
+    """開発中に UI の変更が即座に反映されるよう、キャッシュさせない。"""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )

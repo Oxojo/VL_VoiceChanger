@@ -25,6 +25,7 @@ import torch.nn.functional as F
 
 from .audio import SAMPLE_RATE, highpass, load_mono, match_rms, resample, save_wav
 from .config import resolve_asset
+from .denoise import noise_floor_db, reduce_noise
 from .features import ContentVec, RMVPE
 from .model import ModelInfo, build_model, load_checkpoint
 
@@ -79,6 +80,10 @@ class ConvertOptions:
     seed: int | None = 1234
     output_sr: int | None = None
     pad_samples: int = PAD_SAMPLES
+    #: ノイズ除去の強さ（0 で無効、0.5 前後が声を壊しにくい）
+    denoise: float = 0.0
+    #: 電源ハムの周波数（0 で無効、50 / 60 Hz）
+    dehum: float = 0.0
 
 
 @dataclass
@@ -94,6 +99,9 @@ class ConvertReport:
     rms_in: float
     rms_out: float
     timings: dict[str, float] = field(default_factory=dict)
+    #: ノイズ除去の前後における静音部の RMS（dBFS）
+    noise_floor_in_db: float = 0.0
+    noise_floor_clean_db: float = 0.0
 
 
 class VoiceConverter:
@@ -167,6 +175,16 @@ class VoiceConverter:
             raise ValueError("入力が短すぎます（0.1 秒以上にしてください）")
 
         audio = highpass(audio_in)
+
+        # --- ノイズ除去（任意）--------------------------------------------
+        denoise_seconds = 0.0
+        if opt.denoise > 0 or opt.dehum > 0:
+            t = time.perf_counter()
+            audio = reduce_noise(audio, SAMPLE_RATE, strength=opt.denoise, dehum_hz=opt.dehum)
+            denoise_seconds = time.perf_counter() - t
+            timings["denoise"] = denoise_seconds
+            stage("denoise", 0.05)
+
         audio_pad = np.pad(audio, (opt.pad_samples, opt.pad_samples), mode="reflect")
         p_len = audio_pad.shape[0] // 160
 
@@ -245,6 +263,8 @@ class VoiceConverter:
             f0_voiced_ratio=voiced_ratio,
             rms_in=float(np.sqrt(np.mean(np.square(audio, dtype=np.float64)))) if audio.size else 0.0,
             rms_out=float(np.sqrt(np.mean(np.square(audio_out, dtype=np.float64)))) if audio_out.size else 0.0,
+            noise_floor_in_db=noise_floor_db(audio_in, SAMPLE_RATE),
+            noise_floor_clean_db=noise_floor_db(audio, SAMPLE_RATE),
             timings=timings,
         )
         return audio_out, report

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from . import __version__
 from .audio import SAMPLE_RATE, load_mono, rms_envelope, save_wav
 from .config import resolve_asset
 from .convert import ConvertOptions, VoiceConverter, interpolate_unvoiced
+from .denoise import noise_floor_db, reduce_noise
 from .features import RMVPE
 from .model import build_model, load_checkpoint
 from .realtime import ChunkConfig, ChunkedConverter
@@ -58,6 +60,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
         rms_mix=args.rms_mix,
         seed=None if args.seed < 0 else args.seed,
         output_sr=args.output_sr,
+        denoise=args.denoise,
+        dehum=args.dehum,
     )
 
     print("モデルと特徴量抽出器を読み込み中...")
@@ -83,6 +87,11 @@ def cmd_convert(args: argparse.Namespace) -> int:
         f"  F0 中央値 {report.f0_median:.1f} Hz / 有声率 {report.f0_voiced_ratio * 100:.1f} % / "
         f"RMS {report.rms_in:.4f} → {report.rms_out:.4f}"
     )
+    if options.denoise > 0 or options.dehum > 0:
+        print(
+            f"  ノイズ除去: 強さ {options.denoise:.2f} / ハム {options.dehum or 'なし'} / "
+            f"ノイズフロア {report.noise_floor_in_db:.1f} → {report.noise_floor_clean_db:.1f} dBFS"
+        )
     print("  所要時間: " + ", ".join(f"{k} {v:.2f}s" for k, v in report.timings.items()))
     if args.json:
         Path(args.json).write_text(
@@ -97,6 +106,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
                         "rms_mix": options.rms_mix,
                         "seed": options.seed,
                         "output_sr": options.output_sr,
+                        "denoise": options.denoise,
+                        "dehum": options.dehum,
                     },
                     "report": {
                         "input_seconds": report.input_seconds,
@@ -107,6 +118,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
                         "f0_voiced_ratio": report.f0_voiced_ratio,
                         "rms_in": report.rms_in,
                         "rms_out": report.rms_out,
+                        "noise_floor_in_db": report.noise_floor_in_db,
+                        "noise_floor_clean_db": report.noise_floor_clean_db,
                         "timings": report.timings,
                     },
                 },
@@ -143,6 +156,33 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_denoise(args: argparse.Namespace) -> int:
+    """ノイズ除去だけを行う（変換せずに効果を確認したいとき用）。"""
+    import soundfile as sf
+
+    audio, sr = sf.read(args.input, dtype="float32", always_2d=False)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=1)
+
+    t = time.perf_counter()
+    cleaned = reduce_noise(audio, sr, strength=args.strength, dehum_hz=args.dehum)
+    seconds = time.perf_counter() - t
+
+    save_wav(args.output, cleaned, sr)
+    before = noise_floor_db(audio, sr)
+    after = noise_floor_db(cleaned, sr)
+
+    def rms(x: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(np.square(x.astype(np.float64)))))
+
+    print(f"入力: {Path(args.input).resolve()}（{sr} Hz / {audio.shape[0] / sr:.2f} 秒）")
+    print(f"出力: {Path(args.output).resolve()}")
+    print(f"  ノイズ除去: 強さ {args.strength:.2f} / ハム {args.dehum or 'なし'}")
+    print(f"  ノイズフロア: {before:.1f} → {after:.1f} dBFS（{after - before:+.1f} dB）")
+    print(f"  RMS: {rms(audio):.4f} → {rms(cleaned):.4f} / 処理 {seconds:.2f} 秒")
+    return 0
+
+
 def cmd_bench(args: argparse.Namespace) -> int:
     conv = VoiceConverter(
         args.model,
@@ -164,12 +204,16 @@ def cmd_bench(args: argparse.Namespace) -> int:
         rms_mix=args.rms_mix,
         seed=cfg.seed,
         output_sr=args.output_sr,
+        denoise=args.denoise,
+        dehum=args.dehum,
     )
 
     print(
         f"分割変換: hop {cfg.hop_seconds}s / context {cfg.context_seconds}s "
         f"/ crossfade {cfg.crossfade_seconds}s / デバイス {args.device}"
     )
+    if options.denoise > 0 or options.dehum > 0:
+        print(f"  ノイズ除去: 強さ {options.denoise:.2f} / ハム {options.dehum or 'なし'}（全体に 1 回）")
     out, stats = chunked.process(wav, options)
 
     if args.output:
@@ -223,6 +267,8 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--rms-mix", type=float, default=0.25, help="音量を入力に寄せる強さ 0-1")
     pc.add_argument("--seed", type=int, default=1234, help="乱数シード（-1 で毎回ランダム）")
     pc.add_argument("--output-sr", type=int, default=None, help="出力サンプリングレート（既定はモデル準拠）")
+    pc.add_argument("--denoise", type=float, default=0.0, help="ノイズ除去の強さ 0-1（0 で無効、0.5 前後が無難）")
+    pc.add_argument("--dehum", type=float, default=0.0, help="電源ハム除去（50 / 60 Hz、0 で無効）")
     pc.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pc.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pc.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
@@ -246,10 +292,19 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--rms-mix", type=float, default=0.25, help="音量を入力に寄せる強さ 0-1")
     pb.add_argument("--seed", type=int, default=1234, help="乱数シード（-1 で毎回ランダム）")
     pb.add_argument("--output-sr", type=int, default=None, help="出力サンプリングレート")
+    pb.add_argument("--denoise", type=float, default=0.0, help="ノイズ除去の強さ 0-1（全体に 1 回かける）")
+    pb.add_argument("--dehum", type=float, default=0.0, help="電源ハム除去（50 / 60 Hz、0 で無効）")
     pb.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pb.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pb.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
     pb.set_defaults(func=cmd_bench)
+
+    pn = sub.add_parser("denoise", help="ノイズ除去だけを行う（変換なし）")
+    pn.add_argument("-i", "--input", required=True, help="入力 WAV")
+    pn.add_argument("-o", "--output", required=True, help="出力 WAV")
+    pn.add_argument("--strength", type=float, default=0.6, help="ノイズ除去の強さ 0-1（既定 0.6）")
+    pn.add_argument("--dehum", type=float, default=0.0, help="電源ハム除去（50 / 60 Hz、0 で無効）")
+    pn.set_defaults(func=cmd_denoise)
 
     ps = sub.add_parser("serve", help="ブラウザ UI を起動する")
     ps.add_argument("--host", default="127.0.0.1", help="待ち受けアドレス（既定はこの PC のみ）")

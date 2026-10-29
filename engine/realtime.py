@@ -15,13 +15,14 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .audio import SAMPLE_RATE
 from .convert import ConvertOptions, VoiceConverter
+from .denoise import reduce_noise
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -49,6 +50,7 @@ class ChunkStats:
     process_seconds: float = 0.0
     latencies: list[float] = field(default_factory=list)
     canceled: bool = False
+    preprocess_seconds: float = 0.0
 
     @property
     def rtf(self) -> float:
@@ -103,9 +105,22 @@ class ChunkedConverter:
         fade_frames = min(_frames(cfg.crossfade_seconds, minimum=0), max(hop_frames - 1, 0))
 
         audio = np.asarray(audio16k, dtype=np.float32)
+
+        # ノイズ除去は区間ごとではなく全体に 1 回かける（区間ごとだと
+        # ノイズ推定が区間でばらつき、継ぎ目で音色が変わってしまう）。
+        preprocess_seconds = 0.0
+        if opt.denoise > 0 or opt.dehum > 0:
+            t0 = time.perf_counter()
+            audio = reduce_noise(audio, SAMPLE_RATE, strength=opt.denoise, dehum_hz=opt.dehum)
+            preprocess_seconds = time.perf_counter() - t0
+            opt = replace(opt, denoise=0.0, dehum=0.0)
+
         total_frames = audio.shape[0] // FRAME
         total_chunks = (total_frames + hop_frames - 1) // hop_frames
-        stats = ChunkStats(audio_seconds=float(total_frames * FRAME / SAMPLE_RATE))
+        stats = ChunkStats(
+            audio_seconds=float(total_frames * FRAME / SAMPLE_RATE),
+            preprocess_seconds=preprocess_seconds,
+        )
         pieces: list[np.ndarray] = []
 
         for start in range(0, total_frames, hop_frames):
@@ -142,7 +157,7 @@ class ChunkedConverter:
             if on_progress is not None:
                 on_progress(stats.chunks, total_chunks)
 
-        stats.process_seconds = float(sum(stats.latencies))
+        stats.process_seconds = float(sum(stats.latencies) + stats.preprocess_seconds)
         if not pieces:
             return np.zeros(0, dtype=np.float32), stats
 
