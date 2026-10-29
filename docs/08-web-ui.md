@@ -109,7 +109,7 @@ F0 中央値・F0 追従（log F0 の相関）・エネルギー包絡の相関�
 | `dehum` | `0` | 電源ハム除去（`0` / `50` / `60` Hz） |
 | `metrics` | `true` | 変換後に品質指標を計算する |
 
-例:
+例（bash / curl。Windows の PowerShell では `curl` が別名のため `curl.exe` を使う）:
 
 ```bash
 id=$(curl -s -X POST http://127.0.0.1:8765/api/jobs \

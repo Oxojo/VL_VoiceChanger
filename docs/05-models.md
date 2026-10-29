@@ -197,6 +197,7 @@ curl -X DELETE http://localhost:18000/api/slot-manager/slots/7
 ```
 
 > **`slot_index` は 0 始まり。** 削除後に番号が詰められることはない。
+> Windows の PowerShell では `curl` が別名のため `curl.exe` を使う。
 
 ## 6. モデルマージの扱い（追加検討）
 

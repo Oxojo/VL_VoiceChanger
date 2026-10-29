@@ -139,6 +139,7 @@ python -c "import socket; s=socket.socket(); print('open' if s.connect_ex(('127.
 ```
 
 `python -m vlvc doctor` でも、起動中なら `/api/module-manager/modules` の有効件数を表示する。
+（Windows の PowerShell では `curl` が別名のため `curl.exe` を使う）
 
 **ダウンロードが止まったときの復旧**（2026-10-28 に実際に発生）:
 
