@@ -195,7 +195,9 @@ class VoiceConverter:
             f0 = np.pad(f0, (0, p_len - f0.shape[0]), mode="edge")
         f0 = f0[:p_len]
         voiced_ratio = float(np.mean(f0 > 0)) if p_len else 0.0
-        f0 = interpolate_unvoiced(f0)
+        # 無声の子音・息・休止は 0 Hz のまま合成器へ渡す。
+        # 全区間を補間すると SineGen の有声判定が常時 ON になり、
+        # 子音まで周期音源で合成されるため発音の輪郭を崩してしまう。
         f0 = f0 * (2.0 ** (opt.pitch_shift / 12.0))
         pitchf = f0.astype(np.float32)
         pitch = f0_to_coarse(pitchf)

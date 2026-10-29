@@ -70,6 +70,23 @@ class TestSpectralGate(unittest.TestCase):
         y = spectral_gate(x, SR, strength=0.9)
         self.assertLess(float(np.abs(y).max()), 1e-6)
 
+    def test_preserves_short_onset_after_silence(self) -> None:
+        rng = np.random.default_rng(17)
+        x = rng.normal(0.0, 0.01, SR * 2).astype(np.float32)
+        start = SR // 2
+        tone = _tone(1000.0, 0.2)
+        x[start:start + len(tone)] += tone
+        y = spectral_gate(x, SR, strength=0.7)
+
+        def rms(part: np.ndarray) -> float:
+            return float(np.sqrt(np.mean(part.astype(np.float64) ** 2)))
+
+        onset = rms(y[start:start + int(SR * 0.02)])
+        steady = rms(y[start + int(SR * 0.08):start + int(SR * 0.15)])
+        # 旧来の上下対称な平滑化では約 0.71 となり、先頭が弱まっていた。
+        self.assertGreater(onset / steady, 0.9)
+        self.assertLess(noise_floor_db(y, SR), noise_floor_db(x, SR) - 3.0)
+
 
 class TestDehum(unittest.TestCase):
     def test_reduces_mains_hum_only(self) -> None:
