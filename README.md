@@ -80,6 +80,13 @@ python -m vlvc serve
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
 
+### NeoShowcase 用の紹介ページ
+
+`showcase/` に、NeoShowcase で公開するためのビルド不要な静的ショーケースページを収録している。
+音声変換 Web UI 本体ではなく、プロジェクトの目的・仕組み・実測値・現在地を紹介する公開ページ。
+NeoShowcase 管理画面では Static / Command、Artifact Path を `showcase`、SPA を No に設定する。
+詳しい手順と、変換 UI をそのまま公開しない理由は [docs/10-neoshowcase.md](docs/10-neoshowcase.md) を参照。
+
 ## 前提
 
 - Python 3.10 以上（検証機は 3.12.10）
