@@ -1,17 +1,17 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VL VoiceChanger 窶・閾ｪ蜑阪お繝ｳ繧ｸ繝ｳ</title>
-<link rel="stylesheet" href="/static/style.css?v=20261029">
+<title>VL VoiceChanger — 自前エンジン</title>
+<link rel="stylesheet" href="/static/style.css?v=__BUILD__">
 </head>
 <body>
 <header>
   <h1>VL <span>VoiceChanger</span></h1>
-  <div class="subtitle">RVC v2 繧定・蜑榊ｮ溯｣・＠縺溘Μ繧｢繝ｫ繧ｿ繧､繝髻ｳ螢ｰ螟画鋤繧ｨ繝ｳ繧ｸ繝ｳ</div>
+  <div class="subtitle">RVC v2 を自前実装したリアルタイム音声変換エンジン</div>
   <div class="row" style="margin-left:auto">
-    <span id="healthBadge" class="badge">謗･邯壻ｸｭ窶ｦ</span>
+    <span id="healthBadge" class="badge">接続中…</span>
     <span id="modelBadge" class="badge hidden"></span>
   </div>
 </header>
@@ -19,37 +19,43 @@
 <main>
   <section>
     <div class="card">
-      <h2>1. 蜈･蜉幃浹螢ｰ</h2>
+      <h2>1. 入力音声</h2>
       <div id="dropzone" class="dropzone">
-        <strong>縺薙％縺ｫ髻ｳ螢ｰ繝輔ぃ繧､繝ｫ繧偵ラ繝ｭ繝・・</strong><br>
-        <span class="hint">縺ｾ縺溘・繧ｯ繝ｪ繝・け縺励※驕ｸ謚橸ｼ・AV / FLAC / OGG / MP3・・/span>
+        <strong>ここに音声ファイルをドロップ</strong><br>
+        <span class="hint">またはクリックして選択（WAV / FLAC / OGG / MP3）</span>
         <input id="fileInput" type="file" accept="audio/*,.wav,.flac,.ogg,.mp3" class="hidden">
       </div>
       <div class="row" style="margin-top:12px">
-        <button id="recordBtn" class="rec">笳・繝槭う繧ｯ縺ｧ骭ｲ髻ｳ</button>
+        <button id="recordBtn" class="rec">● マイクで録音</button>
         <span id="recordTime" class="hint hidden">00:00</span>
-        <span style="margin-left:auto" class="hint">骭ｲ髻ｳ縺ｯ 16 kHz 繝｢繝弱Λ繝ｫ縺ｫ螟画鋤縺励※騾∽ｿ｡縺励∪縺・/span>
+        <span style="margin-left:auto" class="hint">録音は 16 kHz モノラルに変換して送信します</span>
       </div>
-      <div id="inputInfo" class="hint" style="margin-top:10px">縺ｾ縺髻ｳ螢ｰ縺後≠繧翫∪縺帙ｓ</div>
+      <div class="row" style="margin-top:10px">
+        <button id="cleanBtn" class="ghost" disabled>ノイズ除去を試す</button>
+        <button id="revertBtn" class="ghost hidden">元に戻す</button>
+        <span id="cleanInfo" class="hint">録音・読み込みのあと、この音声だけに除去をかけられます（任意）</span>
+      </div>
+      <div id="inputInfo" class="hint" style="margin-top:10px">まだ音声がありません</div>
       <canvas id="inputWave" class="wave" style="margin-top:10px"></canvas>
       <audio id="inputAudio" controls class="hidden"></audio>
     </div>
 
     <div class="card">
-      <h2>2. 螟画鋤險ｭ螳・/h2>
+      <h2>2. 変換設定</h2>
       <div class="grid-2">
-        <label class="field wide">繝｢繝・Ν
+        <label class="field wide">モデル
           <select id="modelSelect"></select>
         </label>
-        <label class="field">繝・ヰ繧､繧ｹ
+        <label class="field">デバイス
           <select id="deviceSelect">
-            <option value="auto">閾ｪ蜍包ｼ・PU 縺後≠繧後・菴ｿ縺・ｼ・/option>
-            <option value="cuda">CUDA・・PU・・/option>
+            <option value="auto">自動（GPU があれば使う）</option>
+            <option value="cuda">CUDA（GPU）</option>
             <option value="cpu">CPU</option>
           </select>
         </label>
-        <label class="field">蜃ｺ蜉帙し繝ｳ繝励Μ繝ｳ繧ｰ繝ｬ繝ｼ繝・          <select id="outputSr">
-            <option value="0">繝｢繝・Ν貅匁侠</option>
+        <label class="field">出力サンプリングレート
+          <select id="outputSr">
+            <option value="0">モデル準拠</option>
             <option value="48000">48 kHz</option>
             <option value="44100">44.1 kHz</option>
             <option value="32000">32 kHz</option>
@@ -57,64 +63,73 @@
             <option value="16000">16 kHz</option>
           </select>
         </label>
-        <label class="field wide">繝斐ャ繝・ｼ亥濠髻ｳ・・          <span class="range-row">
+        <label class="field wide">ピッチ（半音）
+          <span class="range-row">
             <input id="pitch" type="range" min="-24" max="24" step="1" value="0">
             <span id="pitchValue" class="range-value">0</span>
           </span>
         </label>
-        <label class="field wide">髻ｳ驥上ｒ蜈･蜉帙↓蟇・○繧句ｼｷ縺包ｼ・MS 繝溘ャ繧ｯ繧ｹ・・          <span class="range-row">
+        <label class="field wide">音量を入力に寄せる強さ（RMS ミックス）
+          <span class="range-row">
             <input id="rmsMix" type="range" min="0" max="1" step="0.05" value="0.25">
             <span id="rmsValue" class="range-value">0.25</span>
           </span>
         </label>
-        <label class="field wide">繝弱う繧ｺ髯､蜴ｻ・育ｩｺ隱ｿ繝ｻ繝輔ぃ繝ｳ縺ｪ縺ｩ縺ｮ螳壼ｸｸ繝弱う繧ｺ・・          <span class="range-row">
+        <label class="field wide">ノイズ除去（空調・ファンなどの定常ノイズ）
+          <span class="range-row">
             <input id="denoise" type="range" min="0" max="1" step="0.05" value="0">
             <span id="denoiseValue" class="range-value">0.00</span>
           </span>
         </label>
-        <label class="field">繝上Β髯､蜴ｻ・磯崕貅舌ヮ繧､繧ｺ・・          <select id="dehum">
-            <option value="0">縺ｪ縺・/option>
+        <label class="field">ハム除去（電源ノイズ）
+          <select id="dehum">
+            <option value="0">なし</option>
             <option value="50">50 Hz</option>
             <option value="60">60 Hz</option>
           </select>
         </label>
-        <label class="field">隧ｱ閠・ID
+        <label class="field">話者 ID
           <input id="speaker" type="number" min="0" value="0">
         </label>
-        <label class="field">荵ｱ謨ｰ繧ｷ繝ｼ繝・          <input id="seed" type="number" value="1234" title="-1 縺ｧ豈主屓繝ｩ繝ｳ繝繝">
+        <label class="field">乱数シード
+          <input id="seed" type="number" value="1234" title="-1 で毎回ランダム">
         </label>
-        <label class="field wide">螟画鋤繝｢繝ｼ繝・          <span class="row">
-            <label class="row" style="gap:6px"><input type="radio" name="mode" value="batch" checked> 荳諡ｬ・亥刀雉ｪ蜆ｪ蜈茨ｼ・/label>
-            <label class="row" style="gap:6px"><input type="radio" name="mode" value="chunk"> 蛻・牡・医Λ繧､繝匁Φ螳壹・騾溷ｺｦ險域ｸｬ・・/label>
+        <label class="field wide">変換モード
+          <span class="row">
+            <label class="row" style="gap:6px"><input type="radio" name="mode" value="batch" checked> 一括（品質優先）</label>
+            <label class="row" style="gap:6px"><input type="radio" name="mode" value="chunk"> 分割（ライブ想定・速度計測）</label>
           </span>
         </label>
       </div>
 
       <div id="chunkOptions" class="grid-2 hidden" style="margin-top:12px">
-        <label class="field">hop・育ｧ抵ｼ・          <input id="hop" type="number" min="0.1" max="2" step="0.05" value="0.5">
+        <label class="field">hop（秒）
+          <input id="hop" type="number" min="0.1" max="2" step="0.05" value="0.5">
         </label>
-        <label class="field">context・育ｧ抵ｼ・          <input id="context" type="number" min="0" max="1" step="0.05" value="0.15">
+        <label class="field">context（秒）
+          <input id="context" type="number" min="0" max="1" step="0.05" value="0.15">
         </label>
-        <label class="field">crossfade・育ｧ抵ｼ・          <input id="crossfade" type="number" min="0" max="0.2" step="0.01" value="0.05">
+        <label class="field">crossfade（秒）
+          <input id="crossfade" type="number" min="0" max="0.2" step="0.01" value="0.05">
         </label>
       </div>
 
       <div class="row" style="margin-top:16px">
-        <button id="convertBtn" class="primary" disabled>螟画鋤縺吶ｋ</button>
-        <button id="cancelBtn" class="ghost hidden">荳ｭ譁ｭ</button>
-        <span id="convertHint" class="hint">髻ｳ螢ｰ繧帝∈縺ｶ縺ｨ螟画鋤縺ｧ縺阪∪縺・/span>
+        <button id="convertBtn" class="primary" disabled>変換する</button>
+        <button id="cancelBtn" class="ghost hidden">中断</button>
+        <span id="convertHint" class="hint">音声を選ぶと変換できます</span>
       </div>
     </div>
   </section>
 
   <section>
     <div class="card">
-      <h2>3. 邨先棡</h2>
-      <div id="idlePanel" class="hint">縺ｾ縺螟画鋤縺励※縺・∪縺帙ｓ縲・/div>
+      <h2>3. 結果</h2>
+      <div id="idlePanel" class="hint">まだ変換していません。</div>
 
       <div id="progressPanel" class="hidden">
         <div class="status-line">
-          <span id="stageText">蠕・ｩ滉ｸｭ</span>
+          <span id="stageText">待機中</span>
           <span id="progressPct">0 %</span>
         </div>
         <div class="progress"><div id="progressBar"></div></div>
@@ -125,8 +140,8 @@
 
       <div id="resultPanel" class="hidden" style="margin-top:14px">
         <div class="row">
-          <strong>螟画鋤蠕後・髻ｳ螢ｰ</strong>
-          <a id="downloadLink" class="badge" href="#" download="converted.wav">WAV 繧偵ム繧ｦ繝ｳ繝ｭ繝ｼ繝・/a>
+          <strong>変換後の音声</strong>
+          <a id="downloadLink" class="badge" href="#" download="converted.wav">WAV をダウンロード</a>
         </div>
         <audio id="outputAudio" controls></audio>
         <canvas id="outputWave" class="wave" style="margin-top:10px"></canvas>
@@ -137,16 +152,17 @@
     </div>
 
     <div class="card">
-      <h2>螻･豁ｴ</h2>
-      <ul id="historyList" class="jobs"><li class="hint">縺ｾ縺縺ゅｊ縺ｾ縺帙ｓ</li></ul>
+      <h2>履歴</h2>
+      <ul id="historyList" class="jobs"><li class="hint">まだありません</li></ul>
     </div>
   </section>
 </main>
 
 <footer>
-  螟画鋤縺ｯ縺薙・ PC 荳翫・ Python 繝励Ο繧ｻ繧ｹ縺ｧ螳溯｡後＆繧後∪縺呻ｼ磯浹螢ｰ繧貞､夜Κ縺ｫ騾∽ｿ｡縺励∪縺帙ｓ・峨・</footer>
+  変換はこの PC 上の Python プロセスで実行されます（音声を外部に送信しません）。
+</footer>
 
 <div id="toast" class="toast"></div>
-<script src="/static/app.js?v=20261029"></script>
+<script src="/static/app.js?v=__BUILD__"></script>
 </body>
 </html>

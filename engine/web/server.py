@@ -24,25 +24,28 @@ from pathlib import Path
 import soundfile as sf
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..audio import SAMPLE_RATE, load_mono, resample, save_wav
 from ..config import REPO_ROOT
 from ..convert import ConvertOptions, VoiceConverter
-from ..denoise import noise_floor_db
+from ..denoise import noise_floor_db, reduce_noise
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODELS_DIR = REPO_ROOT / "models"
 WORK_DIR = REPO_ROOT / "logs" / "web"
+DENOISE_DIR = WORK_DIR / "denoise"
 
 #: 受け付ける最大の音声長（秒）と最大アップロードサイズ（バイト）
 MAX_SECONDS = 180.0
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 #: メモリに残すジョブ数
 MAX_JOBS = 40
+#: 入力用ノイズ除去の結果を残す件数
+MAX_DENOISE = 20
 
 STAGE_LABELS = {
     "queued": "待機中",
@@ -368,7 +371,41 @@ class JobManager:
             pass
 
 
+class DenoiseStore:
+    """入力音声に単体でノイズ除去をかけた結果の一時保存（直近 MAX_DENOISE 件）。"""
+
+    def __init__(self) -> None:
+        self._items: dict[str, dict] = {}
+        self._order: list[str] = []
+        self._lock = threading.Lock()
+        DENOISE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def add(self, item: dict) -> None:
+        with self._lock:
+            self._items[item["id"]] = item
+            self._order.append(item["id"])
+            self._trim_locked()
+
+    def get(self, item_id: str) -> dict:
+        with self._lock:
+            item = self._items.get(item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="処理結果が見つかりません")
+        return item
+
+    def _trim_locked(self) -> None:
+        while len(self._order) > MAX_DENOISE:
+            old = self._order.pop(0)
+            self._items.pop(old, None)
+            d = DENOISE_DIR / old
+            if d.is_dir():
+                for p in d.iterdir():
+                    p.unlink(missing_ok=True)
+                d.rmdir()
+
+
 manager = JobManager()
+denoise_store = DenoiseStore()
 app = FastAPI(title="VL VoiceChanger", docs_url="/api/docs", redoc_url=None)
 
 
@@ -405,6 +442,69 @@ def get_model(model_id: str) -> dict:
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"モデル情報を読めません: {exc}") from exc
+
+
+@app.post("/api/denoise")
+async def denoise_input(
+    audio: UploadFile = File(...),
+    strength: float = Form(0.6),
+    dehum: float = Form(0.0),
+) -> dict:
+    """入力音声にだけノイズ除去をかける（変換前の任意ステップ）。
+
+    返した `audio` をそのまま変換に使える。処理は軽い（数秒の音声で 0.1 秒未満）。
+    """
+    if float(dehum) not in {0.0, 50.0, 60.0}:
+        raise HTTPException(status_code=400, detail="dehum は 0 / 50 / 60 のいずれかです")
+    strength = max(0.0, min(1.0, float(strength)))
+
+    raw = await audio.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（80 MB まで）")
+
+    item_id = secrets.token_hex(6)
+    item_dir = DENOISE_DIR / item_id
+    item_dir.mkdir(parents=True, exist_ok=True)
+    src = item_dir / "input.wav"
+    src.write_bytes(raw)
+
+    try:
+        x, sr = sf.read(str(src), dtype="float32", always_2d=False)
+    except Exception as exc:  # noqa: BLE001 - 壊れたファイルは 400 にする
+        src.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"音声として読めません: {exc}") from exc
+    if getattr(x, "ndim", 1) > 1:
+        x = x.mean(axis=1)
+    if x.shape[0] > MAX_SECONDS * sr:
+        raise HTTPException(status_code=413, detail=f"音声が長すぎます（{MAX_SECONDS:.0f} 秒まで）")
+
+    t = time.perf_counter()
+    cleaned = reduce_noise(x, sr, strength=strength, dehum_hz=float(dehum))
+    seconds = time.perf_counter() - t
+
+    save_wav(item_dir / "clean.wav", cleaned, sr)
+    item = {
+        "id": item_id,
+        "audio": f"/api/denoise/{item_id}/audio",
+        "strength": strength,
+        "dehum": float(dehum),
+        "before_db": round(noise_floor_db(x, sr), 1),
+        "after_db": round(noise_floor_db(cleaned, sr), 1),
+        "duration": round(float(x.shape[0]) / sr, 3),
+        "sample_rate": int(sr),
+        "seconds": round(seconds, 3),
+    }
+    denoise_store.add(item)
+    return item
+
+
+@app.get("/api/denoise/{item_id}/audio")
+def denoise_audio(item_id: str) -> FileResponse:
+    denoise_store.get(item_id)
+    path = DENOISE_DIR / item_id / "clean.wav"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="音声がありません")
+    return FileResponse(path, media_type="audio/wav", filename="clean.wav")
 
 
 @app.get("/api/jobs")
@@ -504,9 +604,18 @@ app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(
-        STATIC_DIR / "index.html",
-        media_type="text/html",
-        headers={"Cache-Control": "no-store"},
+def index() -> HTMLResponse:
+    """画面を返す。
+
+    `?v=__BUILD__` を静的ファイルの更新時刻に置き換える。これで UI を直したときに
+    ブラウザのキャッシュで古い画面が出ることがなくなる（毎回 bump しなくてよい）。
+    """
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    stamp = int(
+        max(
+            (STATIC_DIR / name).stat().st_mtime
+            for name in ("index.html", "app.js", "style.css")
+        )
     )
+    html = html.replace("?v=__BUILD__", f"?v={stamp}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})

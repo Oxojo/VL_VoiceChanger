@@ -82,5 +82,66 @@ class TestWebHelpers(unittest.TestCase):
         self.assertTrue(str(path).endswith(".pth"))
 
 
+class _FakeUpload:
+    """UploadFile の代わりに、用意したバイト列を返すだけの入れ物。"""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def read(self) -> bytes:
+        return self._data
+
+
+def _wav_bytes(seconds: float = 1.0, sr: int = 16000) -> bytes:
+    import io
+
+    import soundfile as sf
+
+    rng = np.random.default_rng(0)
+    t = np.arange(int(sr * seconds)) / sr
+    x = (0.2 * np.sin(2 * np.pi * 220 * t) + 0.02 * rng.standard_normal(t.shape[0])).astype(np.float32)
+    buf = io.BytesIO()
+    sf.write(buf, x, sr, format="WAV", subtype="PCM_16")
+    return buf.getvalue()
+
+
+class TestDenoiseEndpoint(unittest.TestCase):
+    """入力音声だけにノイズ除去をかける API（変換前の任意ステップ）。"""
+
+    def test_denoise_returns_metrics_and_audio(self) -> None:
+        import asyncio
+
+        result = asyncio.run(
+            server.denoise_input(_FakeUpload(_wav_bytes()), strength=0.7, dehum=50.0)  # type: ignore[arg-type]
+        )
+        self.assertEqual(result["strength"], 0.7)
+        self.assertEqual(result["dehum"], 50.0)
+        self.assertAlmostEqual(result["duration"], 1.0, places=2)
+        # ノイズフロアが下がっている
+        self.assertLess(result["after_db"], result["before_db"] - 3.0)
+        # 保存された音声を取得できる
+        path = server.DENOISE_DIR / result["id"] / "clean.wav"
+        self.assertTrue(path.is_file())
+        self.assertGreater(path.stat().st_size, 1000)
+
+    def test_denoise_rejects_unknown_dehum(self) -> None:
+        import asyncio
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(
+                server.denoise_input(_FakeUpload(_wav_bytes()), strength=0.5, dehum=33.0)  # type: ignore[arg-type]
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_denoise_rejects_broken_audio(self) -> None:
+        import asyncio
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(
+                server.denoise_input(_FakeUpload(b"not a wav"), strength=0.5, dehum=0.0)  # type: ignore[arg-type]
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

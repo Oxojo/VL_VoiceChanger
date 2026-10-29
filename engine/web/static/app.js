@@ -5,6 +5,8 @@ const state = {
   wavBlob: null,
   name: "",
   buffer: null,
+  original: null,
+  cleaned: false,
   jobId: null,
   poll: null,
   startedAt: 0,
@@ -133,6 +135,30 @@ async function decodeToWav(file) {
   return { blob: encodeWav(samples, sr), samples, duration: decoded.duration };
 }
 
+function renderInput(blob, samples, name, info) {
+  state.buffer = samples;
+  state.wavBlob = blob;
+  state.name = name;
+
+  $("inputInfo").textContent = info;
+  drawWave($("inputWave"), samples);
+  const player = $("inputAudio");
+  player.src = URL.createObjectURL(blob);
+  player.classList.remove("hidden");
+  $("convertBtn").disabled = false;
+  $("cleanBtn").disabled = false;
+  $("convertHint").textContent = "変換できます";
+}
+
+function adoptInput(blob, samples, name, info) {
+  // 新しく音声を読み込んだときは、元に戻せるように控えておく
+  state.original = { blob, samples, name };
+  state.cleaned = false;
+  $("revertBtn").classList.add("hidden");
+  $("cleanInfo").textContent = "録音・読み込みのあと、この音声だけに除去をかけられます（任意）";
+  renderInput(blob, samples, name, info);
+}
+
 async function setInputFromBuffer(decoded, name) {
   const sr = 16000;
   const length = Math.max(1, Math.ceil(decoded.duration * sr));
@@ -144,18 +170,12 @@ async function setInputFromBuffer(decoded, name) {
   const rendered = await offline.startRendering();
   const samples = rendered.getChannelData(0);
 
-  state.buffer = samples;
-  state.wavBlob = encodeWav(samples, sr);
-  state.name = name;
-
-  $("inputInfo").textContent = `${name} ／ ${decoded.duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`;
-  drawWave($("inputWave"), samples);
-  const url = URL.createObjectURL(state.wavBlob);
-  const player = $("inputAudio");
-  player.src = url;
-  player.classList.remove("hidden");
-  $("convertBtn").disabled = false;
-  $("convertHint").textContent = "変換できます";
+  adoptInput(
+    encodeWav(samples, sr),
+    samples,
+    name,
+    `${name} ／ ${decoded.duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`,
+  );
 }
 
 async function setInputFromFile(file) {
@@ -166,19 +186,73 @@ async function setInputFromFile(file) {
   }
   try {
     const { blob, samples, duration } = await decodeToWav(file);
-    state.buffer = samples;
-    state.wavBlob = blob;
-    state.name = file.name;
-    $("inputInfo").textContent = `${file.name} ／ ${duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`;
-    drawWave($("inputWave"), samples);
-    const player = $("inputAudio");
-    player.src = URL.createObjectURL(blob);
-    player.classList.remove("hidden");
-    $("convertBtn").disabled = false;
-    $("convertHint").textContent = "変換できます";
+    adoptInput(blob, samples, file.name, `${file.name} ／ ${duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`);
   } catch (err) {
     toast(`音声を読めませんでした: ${err.message}`);
   }
+}
+
+// ------------------------------------------------------------------ 入力のノイズ除去（任意）
+async function applyDenoiseToInput() {
+  if (!state.wavBlob) return;
+  const strength = Number($("denoise").value);
+  const dehum = Number($("dehum").value);
+  if (strength === 0 && dehum === 0) {
+    toast("先に「ノイズ除去」の強さ、または「ハム除去」を選んでください");
+    return;
+  }
+
+  $("cleanBtn").disabled = true;
+  $("cleanInfo").textContent = "ノイズ除去中…";
+  try {
+    const form = new FormData();
+    form.append("audio", state.wavBlob, "input.wav");
+    form.append("strength", String(strength));
+    form.append("dehum", String(dehum));
+
+    const res = await api("/api/denoise", { method: "POST", body: form });
+    const blob = await (await fetch(`${res.audio}?t=${Date.now()}`)).blob();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    await ctx.close();
+
+    renderInput(
+      blob,
+      decoded.getChannelData(0),
+      `${state.name.replace(/（除去済み）$/, "")}（除去済み）`,
+      `ノイズ除去を適用: ${fmt(res.before_db, 1)} → ${fmt(res.after_db, 1)} dBFS ／ ${fmt(res.duration, 2)} 秒`,
+    );
+    state.cleaned = true;
+    $("revertBtn").classList.remove("hidden");
+    $("cleanInfo").textContent = `ノイズ除去済み（${fmt(res.before_db, 1)} → ${fmt(res.after_db, 1)} dBFS）`;
+
+    // 二重がけを避けるため、変換時の除去は 0 に戻す
+    if (strength > 0) {
+      $("denoise").value = "0";
+      $("denoiseValue").textContent = "0.00";
+    }
+    if (dehum > 0) {
+      $("dehum").value = "0";
+    }
+  } catch (err) {
+    $("cleanInfo").textContent = "ノイズ除去に失敗しました";
+    toast(err.message);
+  } finally {
+    $("cleanBtn").disabled = false;
+  }
+}
+
+function revertInput() {
+  if (!state.original) return;
+  renderInput(
+    state.original.blob,
+    state.original.samples,
+    state.original.name,
+    `${state.original.name} ／ 元の音声に戻しました`,
+  );
+  state.cleaned = false;
+  $("revertBtn").classList.add("hidden");
+  $("cleanInfo").textContent = "元に戻しました（もう一度かけることもできます）";
 }
 
 // ------------------------------------------------------------------ 録音
@@ -328,6 +402,7 @@ function failJob(message) {
 async function finishJob(job) {
   $("convertBtn").disabled = false;
   $("cancelBtn").classList.add("hidden");
+  $("progressPanel").classList.add("hidden");
   $("resultPanel").classList.remove("hidden");
   $("errorBox").classList.add("hidden");
 
@@ -497,6 +572,9 @@ async function init() {
       startRecording();
     }
   });
+
+  $("cleanBtn").addEventListener("click", applyDenoiseToInput);
+  $("revertBtn").addEventListener("click", revertInput);
 
   // 設定
   $("pitch").addEventListener("input", () => { $("pitchValue").textContent = $("pitch").value; });
