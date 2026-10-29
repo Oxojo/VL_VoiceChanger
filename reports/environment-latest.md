@@ -1,26 +1,27 @@
-﻿# 環境確認レポート
+# 環境確認レポート
 
-- 生成日時: 2026-10-28 06:27:35
-- ホスト名: `OXOJO_MAIN`
+- 生成日時: 2026-10-29T16:27:44+09:00
+- ホスト名: `Oxojo_Main`
+- Python: 3.12.10
 
 ## OS / ハードウェア
 
 | 項目 | 値 |
 | :--- | :--- |
-| OS | Microsoft Windows 11 Home |
-| OS バージョン | 10.0.26200 (Build 26200) |
+| OS | Windows 11 |
+| OS バージョン | 10.0.26200 |
 | CPU | 12th Gen Intel(R) Core(TM) i7-12700H |
 | コア / スレッド | 14 / 20 |
 | メモリ | 15.6 GB |
-| 空きディスク | 19.7 GB |
+| 空きディスク | 21.0 GB |
 
 ## GPU
 
 | # | 名前 | VRAM | ドライバ | 取得元 |
 | :--- | :--- | :--- | :--- | :--- |
-| 0 | NVIDIA GeForce RTX 3060 Laptop GPU | 6 GB | 591.86 | nvidia-smi |
+| 0 | NVIDIA GeForce RTX 3060 Laptop GPU | 6.0 GB | 591.86 | nvidia-smi |
 
-> `Win32_VideoController` の VRAM は 32 bit 制限で 4 GB 超が正確に出ない場合がある。`nvidia-smi` の値を優先する。
+> Windows の `Win32_VideoController` の VRAM は 32 bit 制限で 4 GB 超が不正確な場合がある。`nvidia-smi` の値を優先する。
 
 ## 音声デバイス
 
@@ -29,6 +30,7 @@
 - マイク (C-Media(R) Audio)
 - Voicemeeter Out A2 (VB-Audio Voicemeeter VAIO)
 - Voicemeeter Out A4 (VB-Audio Voicemeeter VAIO)
+- ヘッドセット マイク (ATH-CKD7NC)
 - Voicemeeter Out B2 (VB-Audio Voicemeeter VAIO)
 - Voicemeeter Out A3 (VB-Audio Voicemeeter VAIO)
 - Voicemeeter Out A5 (VB-Audio Voicemeeter VAIO)
@@ -50,20 +52,21 @@
 - Voicemeeter AUX Input (VB-Audio Voicemeeter VAIO)
 - Voicemeeter Input (VB-Audio Voicemeeter VAIO)
 - Voicemeeter In 3 (VB-Audio Voicemeeter VAIO)
+- ヘッドホン (ATH-CKD7NC)
 
 ## VC Client
 
 | 項目 | 値 |
 | :--- | :--- |
-| 配置フォルダ | `C:/Tools/vcclient_win_cuda` |
+| 配置フォルダ | `C:\Tools\vcclient_win_cuda` |
 | フォルダ存在 | True |
-| 起動スクリプト | start_http.bat あり |
+| 起動スクリプト | あり |
 | エディション（推定） | cuda |
 | バージョン（推定） | 2.1.4-alpha |
-| ポート 18000 | 応答あり |
+| ポート 18000 | 閉 |
 | 配下の .pth | 2 件 |
 
-> エディションとバージョンはフォルダ名からの推定。**実際の配布名は GUI の Server Info で確認し、確定値を docs/00-phase0-environment.md に記録する。**
+> エディションとバージョンは推定。実際の配布名は GUI の Server Info で確認し、docs/00-phase0-environment.md に記録する。
 
 ## 検出した注意点
 

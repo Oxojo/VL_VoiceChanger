@@ -7,6 +7,14 @@ logs/*
 !logs/.gitkeep
 reports/*.json
 
+# Python（自前エンジン）
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
 # OS / エディタ
 Thumbs.db
 Desktop.ini

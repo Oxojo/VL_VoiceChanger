@@ -30,22 +30,22 @@
 
 ## 2. 起動
 
-```powershell
-.\scripts\Start-VoiceChanger.ps1 -Profile character-a
+```bash
+python -m vlvc launch character-a
 ```
 
 初回のみ、モデルを登録する（2 回目以降は「登録済み」と表示されて終了する）。
 
-```powershell
-.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+```bash
+python -m vlvc register-model models/tsukuyomi/tsukuyomi-normal1.pth --name 'つくよみちゃん（通常1）'
 ```
 
 プロファイルのうち **REST API で変更できる値**（モデル/スロット、AUDIO 方式、GPU、ノイズゲート、EXTRA）は
-スクリプトで反映できる。まず `-DryRun` で差分を確認する。
+CLI で反映できる。まず `--dry-run` で差分を確認する。
 
-```powershell
-.\scripts\Set-VoiceProfile.ps1 character-a -DryRun
-.\scripts\Set-VoiceProfile.ps1 character-a
+```bash
+python -m vlvc profile apply character-a --dry-run
+python -m vlvc profile apply character-a
 ```
 
 表示されたチェックリストのとおり GUI を設定する。
@@ -55,7 +55,7 @@
 3. TUNE / INDEX / F0 Det / CHUNK / EXTRA / S. Thresh を合わせる
 4. **start** を押す
 
-> **TUNE（pitch）/ INDEX / F0 Det / CHUNK はスクリプトで変更できない。**
+> **TUNE（pitch）/ INDEX / F0 Det / CHUNK は CLI で変更できない。**
 > `PUT /api/slot-manager/slots/{index}` はボディを受け付けず再読込のみのため、これらは GUI で設定する。
 >
 > **start は GUI で押す。** REST の `operation/start` だけでは変換スレッドが起動しない（実測）。
@@ -75,10 +75,10 @@
 ## 4. 運用中の監視
 
 - 変換が止まっていないか、**目視と聴取の両方**で確認する（自動計測だけでは音切れは分からない）
-- 長時間の場合は `Test-Stability.ps1` を併走させ、事象をキー入力で記録する
+- 長時間の場合は `vlvc stability` を併走させ、事象をキー入力で記録する
 
-```powershell
-.\scripts\Test-Stability.ps1 -Profile character-a
+```bash
+python -m vlvc stability --profile character-a
 ```
 
 | キー | 記録される事象 |

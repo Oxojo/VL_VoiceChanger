@@ -8,9 +8,12 @@
 
 ## 1. 自動診断を実行する
 
-```powershell
-.\scripts\Check-Environment.ps1
+```bash
+python -m vlvc doctor
 ```
+
+`vlvc` は Python 製のクロスプラットフォーム CLI（Windows / macOS / Linux）。
+`.venv` が無い場合は先に `python -m vlvc setup` を実行する。
 
 `reports/environment-latest.md` に次が出力される。
 
@@ -28,7 +31,7 @@
 
 ### PC
 
-> 下記は `Check-Environment.ps1` を **2026-10-28 に検証機で実行した実測値**。別の PC を使う場合は上書きする。
+> 下記は `python -m vlvc doctor` を **2026-10-28 に検証機で実行した実測値**。別の PC を使う場合は上書きする。
 
 | 項目 | 実測 / 型番 | 備考 |
 | :--- | :--- | :--- |
@@ -69,7 +72,7 @@
 | :--- | :--- |
 | ソフト名 | VC Client（w-okada/voice-changer） |
 | 配布ファイル名 | `vcclient_win_cuda_2.1.4-alpha.zip`（3,583 MB） |
-| エディション | `cuda`（`Check-Environment.ps1` で判定確認済み） |
+| エディション | `cuda`（`python -m vlvc doctor` で判定確認済み） |
 | バージョン | 2.1.4-alpha |
 | ダウンロード元 URL | https://huggingface.co/wok000/vcclient000 |
 | 取得日 | 2026-10-28 |

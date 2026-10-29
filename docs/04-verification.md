@@ -9,7 +9,7 @@
 | # | 条件 | 判定方法 | 結果 |
 | :-- | :--- | :--- | :--- |
 | M1 | 演者 1 名・モデル 1 種類で変換音を選択した出力先で確認できた | 聴取 | 未 |
-| M2 | 10 分間の連続発話中に**明らかな停止**がなかった | `Test-Stability.ps1` + 目視 | 未 |
+| M2 | 10 分間の連続発話中に**明らかな停止**がなかった | `vlvc stability` + 目視 | 未 |
 | M3 | **頻繁な音切れ**がなかった | 聴取 + 操作者記録 | 未 |
 | M4 | **著しい声の崩れ**がなかった | 聴取 | 未 |
 | M5 | 評価担当 2 名程度が通常発話・早口・感情発話を理解できた | 評価シート | 未 |
@@ -83,12 +83,12 @@
 
 ### 手順
 
-```powershell
+```bash
 # 1. VC Client を起動し、start を押して変換を開始しておく
-.\scripts\Start-VoiceChanger.ps1 -Profile character-a
+python -m vlvc launch character-a
 
 # 2. 別のターミナルで計測を開始（D/S/N/M/Q キーで事象を記録）
-.\scripts\Test-Stability.ps1 -Profile character-a
+python -m vlvc stability --profile character-a
 ```
 
 計測中は **実際に 10 分間発話を続ける**。無言で 10 分待つと音切れを検出できない。
@@ -157,12 +157,17 @@
 | E2 | API の稼働 | `GET /api/hello` | `Hello World! VCClient gives a cute voice to you!` |
 | E3 | 必須モジュール | `GET /api/module-manager/modules` | **10/10 件 `valid=true`**（約 3.3 GB） |
 | E4 | GPU 認識 | `nvidia-smi` / `GET /api/configuration-manager/gpu_info` | RTX 3060 Laptop / VRAM 6 GB / `device_id=0` |
-| E5 | モデル登録 | `Register-Model.ps1` → `POST /api/slot-manager/slots` | **`slot_index=5`** に `tsukuyomi-normal1.pth` を **0.3 秒**で登録 |
+| E5 | モデル登録 | `vlvc register-model` → `POST /api/slot-manager/slots` | **`slot_index=5`** に `tsukuyomi-normal1.pth` を **0.3 秒**で登録 |
 | E6 | 自動判定された属性 | `params.json` | `pyTorchRVCv2` / **40000 Hz** / `hubert_base_l12` / `rmvpe_onnx` |
-| E7 | 2 個目の登録 | 同スクリプト（`tsukuyomi-normal2.pth`） | `slot_index=6` に登録（空きスロット自動選択が機能） |
+| E7 | 2 個目の登録 | 同 CLI（`tsukuyomi-normal2.pth`） | `slot_index=6` に登録（空きスロット自動選択が機能） |
 | E8 | モデルの GPU 常駐 | `nvidia-smi` | VRAM 使用 **約 2.6 GB**（モデル読込後） |
 | E9 | 変換スレッドの起動 | GUI の **start** | ログに `start_convert_chunk_bulk called`。GPU 使用率が **33〜42 %** まで上昇 |
-| E10 | プロセス安定性（2 分 / 1 分） | `Test-Stability.ps1` | 完走。レポート `reports/stability-*.md` |
+| E10 | プロセス安定性（2 分 / 1 分） | `vlvc stability` | 完走。レポート `reports/stability-*.md` |
+| E11 | 自前エンジンの GPU 推論 | `engine convert --device cuda` | 初回 7.12 秒（RTF 0.93）→ 2 回目以降 **2.07〜3.13 秒（RTF 0.27〜0.41）**。F0 追従 0.999 / 包絡 0.962 |
+| E12 | 自前エンジンの分割変換（GPU） | `engine bench --device cuda --hop 0.5` | 16 区間 / RTF **1.64〜2.08** / 区間遅延 最大 **1.20〜1.29 秒** → ライブ成立は**不可** |
+| E13 | ブラウザ UI からの変換 | `vlvc serve` → `POST /api/jobs` | 一括・分割とも完走。履歴・メトリクス・WAV ダウンロードを確認 |
+| E14 | ノイズ除去（前処理） | `engine denoise --strength 0.7 --dehum 50` | 入力フロア **-23.4 → -39.0 dBFS**。変換出力フロア -59.8 → **-62.5 dBFS**（クリーン入力は -61.4） |
+| E15 | 入力だけのノイズ除去（Web UI / API） | `POST /api/denoise`（7.63 秒・強さ 0.7 + 50 Hz） | **0.055 秒**で完了。`-22.1 → -37.5 dBFS`。除去後の音声をそのまま変換でき、画面の「元に戻す」も動作 |
 
 ### 7.2 確認できなかったこと（人・機材が必要）
 
@@ -171,7 +176,7 @@
 | 変換音の聴取（M1, M3〜M6） | 評価担当が不在 | Phase 2 の評価シートを実施 |
 | 変換音の録音（客観証跡） | **マイク入力が無音**（`input.wav` = -90.7 dB）。USB オーディオ IF `マイク (3- AT-UMX3)` が PnP Status=Unknown | オーディオ IF を接続し、`input.wav` が -40 dB 以上になることを確認 |
 | オフライン変換（`convert_file`） | **2.1.4-alpha の不具合**で常に 500（`Timer.__init__() got an unexpected keyword argument 'enable'`） | 録音で代替（[03-troubleshooting.md](03-troubleshooting.md)） |
-| 10 分連続運用（M2） | 発話が必要 | マイク接続後に `Test-Stability.ps1` で実施 |
+| 10 分連続運用（M2） | 発話が必要 | マイク接続後に `vlvc stability` で実施 |
 
 ### 7.3 判明した仕様（運用に影響するもの）
 
@@ -184,6 +189,27 @@
 | 録音 | **server モードのみ**。`input.wav` / `output.wav` を `vcClient.root` に 44.1 kHz / 32 bit float で保存 |
 | ダミー入力 | `set_dummy_input` は server モード専用。GUI の「サンプル」で送信する |
 | 設定の保存 | スロット固有値（TUNE / INDEX / CHUNK / F0）は REST で変更不可。GUI で設定 |
+
+### 7.4 自前エンジン / ブラウザ UI の実測（2026-10-28）
+
+`engine/` の自前実装（ContentVec + RMVPE の ONNX、RVC v2 合成器の PyTorch 実装）で、
+GPU（RTX 3060 Laptop / CUDA 13 系ドライバ + torch 2.14.1+cu126）の実測を取った。
+
+| 項目 | CPU | GPU |
+| :--- | ---: | ---: |
+| 一括変換（7.63 秒の音声） | 9.14 秒（RTF 1.20） | 2.07〜3.13 秒（RTF 0.27〜0.41、初回のみ 7.12 秒） |
+| 分割変換 16 区間（hop 0.5 秒） | 69.5 秒（RTF 9.11） | 12.5〜15.3 秒（RTF 1.64〜2.08） |
+| 区間あたり遅延（分割） | 平均 4,346 ms / 最大 4,670 ms | 平均 780〜990 ms / 最大 1.2〜2.1 秒 |
+
+- 品質は一括・分割で同等（F0 追従 0.999 / 包絡相関 0.96〜0.97）。分割は 10 ms フレーム単位の
+  切り出しと 50 ms のクロスフェードで、継ぎ目の跳びを全体平均と同程度まで抑えている。
+- **一括変換は GPU で実時間より速い**。ファイル変換・オフライン変換は実用域。
+- **分割変換はライブ未成立**。区間ごとの固定費（ContentVec の ONNX が CPU 実行）が支配的で、
+  0.5 秒区間に 0.8〜1.3 秒かかる。ライブ化には ContentVec の GPU 実行（ONNX Runtime GPU /
+  TensorRT）か、区間長を長くして遅延を許容する設計変更が必要。
+- ブラウザ UI（`engine/web`）から同じ変換を実行でき、履歴・数値・WAV 保存まで確認した。
+
+詳細: [07-own-engine.md](07-own-engine.md) / [08-web-ui.md](08-web-ui.md)
 
 ## 8. 最終判定
 

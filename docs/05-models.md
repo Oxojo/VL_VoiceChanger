@@ -168,10 +168,9 @@ tsukuyomi-weak.pth     96B8A0E757D87B8BAB88BB015D141A5C123E05CE109F7EBBE9CB40D03
 | index ファイル | **本モデルには同梱されていない**（`.pth` のみ）。index 無しでも動作するが、声質の再現度は index ありより下がる |
 | 規約の証跡 | `README-tyc.txt` / `LICENSE-tyc-terms.txt` をモデルと同じフォルダに置く |
 
-```powershell
+```bash
 # ハッシュの取得（モデルフォルダ内の .pth をすべて）
-Get-ChildItem .\models\tsukuyomi\*.pth | Get-FileHash -Algorithm SHA256 |
-  Select-Object @{n='File';e={Split-Path $_.Path -Leaf}}, Hash
+python -c "import hashlib, pathlib; [print(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(pathlib.Path('models/tsukuyomi').glob('*.pth'))]"
 ```
 
 ### 5.1 VC Client への登録状態（2026-10-28 実測）
@@ -182,22 +181,23 @@ Get-ChildItem .\models\tsukuyomi\*.pth | Get-FileHash -Algorithm SHA256 |
 | 6 | **7.** | つくよみちゃん（通常2） | `pyTorchRVCv2` | 40000 Hz | `hubert_base_l12` | `rmvpe_onnx` |
 
 - 実体は `vcClient.root\model_dir\<slot_index>\`（`params.json` + `.pth`）。**GUI の番号は 0 始まりの API 値 + 1。**
-- 登録は `scripts/Register-Model.ps1`（REST API）。**52.7 MB で 0.3 秒**。`inferencer_type` / `sample_rate` / `embedder` は `.pth` から自動判定される。
-- 空きスロットは自動選択される。番号を固定したいときは `-SlotIndex` を指定する。
+- 登録は `python -m vlvc register-model`（REST API）。**52.7 MB で 0.3 秒**。`inferencer_type` / `sample_rate` / `embedder` は `.pth` から自動判定される。
+- 空きスロットは自動選択される。番号を固定したいときは `--slot` を指定する。
 - 不要になったスロットは削除できる（`model_dir\<index>` も消える）。
 
-```powershell
+```bash
 # 登録（初回・追加とも同じ）
-.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+python -m vlvc register-model models/tsukuyomi/tsukuyomi-normal1.pth --name 'つくよみちゃん（通常1）'
 
 # 番号を指定して登録
-.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal3.pth -Name 'つくよみちゃん（通常3）' -SlotIndex 7
+python -m vlvc register-model models/tsukuyomi/tsukuyomi-normal3.pth --name 'つくよみちゃん（通常3）' --slot 7
 
 # スロットの削除（例: slot 7）
-Invoke-RestMethod -Method Delete 'http://localhost:18000/api/slot-manager/slots/7'
+curl -X DELETE http://localhost:18000/api/slot-manager/slots/7
 ```
 
 > **`slot_index` は 0 始まり。** 削除後に番号が詰められることはない。
+> Windows の PowerShell では `curl` が別名のため `curl.exe` を使う。
 
 ## 6. モデルマージの扱い（追加検討）
 

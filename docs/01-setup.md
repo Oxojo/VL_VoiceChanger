@@ -67,7 +67,7 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 ```
 
 - **`dist\main` を残したまま `root` に指定しない。** 一段深いと `start_http.bat` が見つからず起動に失敗する。
-- `start_http.bat` は `main.exe` を起動するだけの 1 行。**プロセス名は `main`**（旧版の `MMVC_Client*` ではない）。本リポジトリのスクリプトは `vcClient.root` 配下の実行ファイルから自動判定するため、名前を覚える必要はない。
+- `start_http.bat` は `main.exe` を起動するだけの 1 行。**プロセス名は `main`**（旧版の `MMVC_Client*` ではない）。本リポジトリの CLI（`vlvc`）は `vcClient.root` 配下の実行ファイルから自動判定するため、名前を覚える必要はない。
 
 ### 2.2 GUI はどこに出るか（実測）
 
@@ -84,11 +84,11 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 
 ## 3. 初回起動
 
-```powershell
-.\scripts\Start-VoiceChanger.ps1 -Profile character-a
+```bash
+python -m vlvc launch character-a
 ```
 
-スクリプトは次を行う。
+`vlvc launch` は次を行う。
 
 1. プロファイルとモデルファイルの存在確認
 2. 記録済みの入出力デバイスが現在も存在するか確認
@@ -107,18 +107,18 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 | その時点のモジュール | **6/10 件**（残りはバックグラウンドで継続） |
 | モジュール合計 | 10 個 / 約 3.3 GB |
 | 2 回目以降 | 取得済みなら数十秒〜数分 |
-| 進捗の見え方 | スクリプトが `必須モジュールのダウンロード: 3/10 件` のように表示 |
+| 進捗の見え方 | `vlvc launch` が `必須モジュールのダウンロード: 3/10 件` のように表示 |
 
 > **初回は「失敗した」と判断して再起動を繰り返さないこと。** 途中まで取得したモジュールは再利用されるが、無駄に時間がかかる。
 > 進捗は `C:\Tools\vcclient_win_cuda\vcclient.log` で確認できる（[03-troubleshooting.md](03-troubleshooting.md) に確認用コマンドあり）。
 > **ダウンロードが止まったまま GUI だけ開く**ことがある（実測で発生）。その場合は
-> `Invoke-RestMethod 'http://localhost:18000/api/module-manager/modules'` で `valid=False` を確認し、
+> `python -m vlvc doctor` で `必須モジュール: x/10 件のみ有効` を確認し、
 > [03-troubleshooting.md](03-troubleshooting.md) の復旧手順に従う。
 
 待ち時間を長めにしたい場合:
 
-```powershell
-.\scripts\Start-VoiceChanger.ps1 -Profile character-a -TimeoutSeconds 7200
+```bash
+python -m vlvc launch character-a --timeout 7200
 ```
 
 > GUI が開かない場合は [03-troubleshooting.md](03-troubleshooting.md) の「GUI が開かない」を参照。
@@ -127,14 +127,14 @@ C:\Tools\vcclient_win_cuda\        ← vcClient.root はここ
 
 モデル登録は **REST API で自動化できる**（2.1.4-alpha で実証済み）。GUI で行うこともできる。
 
-### 4.1 スクリプトで登録する（推奨）
+### 4.1 CLI で登録する（推奨）
 
-```powershell
-# 既に登録済みなら「登録済み」と表示して終了する（-Force で二重登録）
-.\scripts\Register-Model.ps1 models/tsukuyomi/tsukuyomi-normal1.pth -Name 'つくよみちゃん（通常1）'
+```bash
+# 既に登録済みなら「登録済み」と表示して終了する（--force で二重登録）
+python -m vlvc register-model models/tsukuyomi/tsukuyomi-normal1.pth --name 'つくよみちゃん（通常1）'
 ```
 
-スクリプトは次を行う。
+CLI は次を行う。
 
 1. `GET /api/hello` で VC Client の稼働を確認
 2. モデルの拡張子（`.pth` / `.onnx`）を確認
@@ -240,7 +240,7 @@ server モードでは **録音** ボタンで入出力を WAV に保存でき�
 
 ## 8. Phase 1 完了条件
 
-- [ ] `Start-VoiceChanger.ps1` で起動できた
+- [ ] `python -m vlvc launch character-a` で起動できた
 - [ ] モデルが RVC として読み込まれた
 - [ ] 変換後の声が output デバイスから聞こえた
 - [ ] 採用エディション・バージョンを `docs/00-phase0-environment.md` に記録した
