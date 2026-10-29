@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="バーチャルライブ向けリアルタイム音声変換の実証プロジェクト VL VoiceChanger。RVC v2、自前エンジン、ブラウザ UI、検証記録をひとつのリポジトリに。" />
+    <meta name="theme-color" content="#09111f" />
+    <title>VL VoiceChanger — 声を変えて、キャラクターを立ち上げる。</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="responsive.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">本文へ移動</a>
+
+    <header class="site-header" data-header>
+      <a class="brand" href="#top" aria-label="VL VoiceChanger トップへ">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>
+        <span>VL <strong>VoiceChanger</strong></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="global-nav">
+        <span class="sr-only">メニューを開く</span><span></span><span></span>
+      </button>
+      <nav class="global-nav" id="global-nav" aria-label="メインナビゲーション">
+        <a href="#about">プロジェクト</a>
+        <a href="#flow">仕組み</a>
+        <a href="#status">現在地</a>
+        <a href="#try">試す</a>
+        <a class="nav-github" href="https://github.com/Oxojo/VL_VoiceChanger" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-glow hero-glow-a" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-b" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Virtual live voice conversion / Proof of concept</p>
+          <h1 id="hero-title">声を変えて、<br /><em>キャラクターを立ち上げる。</em></h1>
+          <p class="hero-lead">演者ひとりの声を、RVC モデルで別のキャラクターへ。変換エンジン、操作画面、計測、運用手順までをひとつにした実証プロジェクトです。</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#demo">画面を見る <span aria-hidden="true">↓</span></a>
+            <a class="button button-ghost" href="https://github.com/Oxojo/VL_VoiceChanger" target="_blank" rel="noreferrer">ソースコード <span aria-hidden="true">↗</span></a>
+          </div>
+          <ul class="hero-tags" aria-label="プロジェクトの特徴"><li>RVC v2</li><li>Local-first</li><li>Python + ONNX Runtime</li></ul>
+        </div>
+
+        <div class="hero-visual" aria-label="音声変換のイメージ">
+          <div class="visual-orbit orbit-one" aria-hidden="true"></div><div class="visual-orbit orbit-two" aria-hidden="true"></div>
+          <div class="voice-stage">
+            <div class="stage-label stage-label-in"><span>INPUT</span><strong>Performer</strong></div>
+            <div class="voice-core" aria-hidden="true">
+              <div class="core-ring"></div>
+              <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <span class="core-caption">VOICE<br />SHIFT</span>
+            </div>
+            <div class="stage-label stage-label-out"><span>OUTPUT</span><strong>Character</strong></div>
+            <div class="signal-line signal-in" aria-hidden="true"></div><div class="signal-line signal-out" aria-hidden="true"></div>
+          </div>
+          <div class="visual-note note-top"><b>F0</b><span>pitch tracking</span></div>
+          <div class="visual-note note-bottom"><b>RVC</b><span>voice synthesis</span></div>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="GPU 環境での計測例">
+        <div class="metric-context"><span class="live-dot" aria-hidden="true"></span>RTX 3060 Laptop / 7.63 秒の音声 / モデル常駐後</div>
+        <dl>
+          <div><dt>処理時間</dt><dd>2.07<small>秒</small></dd></div>
+          <div><dt>実時間比（RTF）</dt><dd>0.27</dd></div>
+          <div><dt>F0 追従</dt><dd>0.999</dd></div>
+          <div><dt>音声の外部送信</dt><dd>0<small>bytes</small></dd></div>
+        </dl>
+        <p>※ ローカル実行時の検証例です。端末・モデル・設定で変動します。サーバー版を利用する場合、音声はそのサーバーへ送信されます。</p>
+      </section>
+
+      <section class="section project" id="about" aria-labelledby="about-title">
+        <div class="section-kicker">01 / PROJECT</div>
+        <div class="project-heading">
+          <h2 id="about-title">“変換できた” で終わらせない。<br />ライブ運用まで見据えた検証環境。</h2>
+          <p>音声変換の品質だけでなく、導入、設定、再現性、処理時間、トラブルからの復旧まで。本番で判断できる材料を、コードと記録の両方で残します。</p>
+        </div>
+        <div class="project-grid">
+          <article class="project-feature feature-wide">
+            <div class="feature-index">A</div>
+            <div><p class="feature-label">OWN ENGINE</p><h3>依存先を選べる、自前の変換エンジン</h3><p>PyTorch と ONNX Runtime で WAV → WAV 変換を実装。VC Client に依存しない経路も持ち、処理を分解して速度と品質を計測できます。</p></div>
+            <div class="mini-terminal" aria-label="コマンド例"><span class="terminal-dots"><i></i><i></i><i></i></span><code><b>$</b> python -m vlvc convert \<br />&nbsp;&nbsp;-m model.pth -i voice.wav -o out.wav</code></div>
+          </article>
+          <article class="project-feature"><div class="feature-index">B</div><p class="feature-label">BROWSER UI</p><h3>録音から比較まで、ひとつの画面で</h3><p>ドラッグ＆ドロップ、マイク録音、変換、波形・指標の比較、WAV 保存に対応します。</p></article>
+          <article class="project-feature feature-accent"><div class="feature-index">C</div><p class="feature-label">REPRODUCIBLE</p><h3>設定と判断を、あとから追える形に</h3><p>キャラクター別プロファイル、環境診断、安定性レポート、運用・復旧手順をリポジトリで管理します。</p></article>
+        </div>
+      </section>
+
+      <section class="section flow-section" id="flow" aria-labelledby="flow-title">
+        <div class="section-kicker">02 / PIPELINE</div>
+        <div class="flow-heading"><h2 id="flow-title">声がキャラクターになるまで。</h2><p>重い処理はローカル PC で実行。ブラウザは操作と試聴に集中します。</p></div>
+        <ol class="flow-list">
+          <li><span class="flow-number">01</span><div class="flow-icon input-icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><h3>Capture</h3><p>WAV / FLAC / OGG<br />またはマイク録音</p></li>
+          <li><span class="flow-number">02</span><div class="flow-icon clean-icon" aria-hidden="true"><span></span></div><h3>Clean</h3><p>定常ノイズと<br />電源ハムを低減</p></li>
+          <li class="flow-main"><span class="flow-number">03</span><div class="flow-icon convert-icon" aria-hidden="true"><span>RVC</span><i></i><i></i><i></i></div><h3>Convert</h3><p>F0 推定・特徴抽出・<br />キャラクター音声合成</p></li>
+          <li><span class="flow-number">04</span><div class="flow-icon measure-icon" aria-hidden="true"><i></i><i></i><i></i></div><h3>Measure</h3><p>F0・明瞭さ・音量・<br />遅延を数値化</p></li>
+          <li><span class="flow-number">05</span><div class="flow-icon output-icon" aria-hidden="true"><span></span></div><h3>Listen</h3><p>波形を比較して<br />試聴・ダウンロード</p></li>
+        </ol>
+      </section>
+
+      <section class="section demo-section" id="demo" aria-labelledby="demo-title">
+        <div class="demo-copy">
+          <div class="section-kicker">03 / INTERFACE</div>
+          <h2 id="demo-title">入力、設定、結果。<br />検証の流れを一画面に。</h2>
+          <p>入力音声と変換後の波形を並べ、処理時間や F0 追従などをその場で確認。感覚だけに頼らず、次の設定へ進めます。</p>
+          <ul class="check-list"><li><span aria-hidden="true">✓</span>音声ファイルのドロップとマイク録音</li><li><span aria-hidden="true">✓</span>ピッチ・音量・ノイズ除去の調整</li><li><span aria-hidden="true">✓</span>品質指標、波形、処理時間の比較</li></ul>
+          <a class="text-link" href="https://github.com/Oxojo/VL_VoiceChanger/blob/main/docs/08-web-ui.md" target="_blank" rel="noreferrer">Web UI の詳しい使い方 <span aria-hidden="true">↗</span></a>
+        </div>
+        <figure class="app-shot">
+          <div class="browser-chrome" aria-hidden="true"><span></span><span></span><span></span><div>localhost:8765</div></div>
+          <img src="assets/web-ui.png" alt="VL VoiceChanger のブラウザ UI。入力音声、変換設定、結果の波形と品質指標が表示されている。" width="1281" height="1110" />
+          <figcaption>実際のローカル Web UI — 音声変換処理はこの PC の中で完結します。</figcaption>
+        </figure>
+      </section>
+
+      <section class="section status-section" id="status" aria-labelledby="status-title">
+        <div class="status-intro"><div class="section-kicker">04 / CURRENT STATUS</div><h2 id="status-title">いま使えることと、<br />これから詰めること。</h2><p>これは完成品を装うページではなく、実証の現在地を共有するページです。公開ページ自体は NeoShowcase で配信できますが、音声変換はローカル環境で動作します。</p></div>
+        <div class="status-board">
+          <div class="status-row status-head"><span>領域</span><span>現在地</span><span>状態</span></div>
+          <div class="status-row"><span>ファイル音声変換</span><span>GPU で実時間より高速な一括変換を確認</span><strong class="status-ready">READY</strong></div>
+          <div class="status-row"><span>ブラウザ UI</span><span>録音・設定・変換・比較・保存まで実装</span><strong class="status-ready">READY</strong></div>
+          <div class="status-row"><span>リアルタイム変換</span><span>区間遅延が目標を超過。高速化を検証中</span><strong class="status-progress">TESTING</strong></div>
+          <div class="status-row"><span>公開サーバー推論</span><span>CPU 用 Dockerfile を用意。モデル配置・アクセス制限・実機検証が必要</span><strong class="status-progress">TESTING</strong></div>
+        </div>
+      </section>
+
+      <section class="section try-section" id="try" aria-labelledby="try-title">
+        <div class="try-copy">
+          <div class="section-kicker">05 / TRY LOCALLY</div>
+          <h2 id="try-title">手元の PC で、<br />変換を試す。</h2>
+          <p>Python 3.10 以上と対応モデルを用意して、ローカル Web UI を起動します。モデルの利用条件とクレジットは、必ずドキュメントを確認してください。</p>
+          <div class="try-links">
+            <a class="button button-primary" href="https://github.com/Oxojo/VL_VoiceChanger#クイックスタート" target="_blank" rel="noreferrer">セットアップ手順 <span aria-hidden="true">↗</span></a>
+            <a class="button button-ghost" href="https://github.com/Oxojo/VL_VoiceChanger/blob/main/docs/05-models.md" target="_blank" rel="noreferrer">モデル規約</a>
+          </div>
+        </div>
+        <div class="quickstart" aria-label="クイックスタートコマンド">
+          <div class="quickstart-head"><span>Quick start</span><button type="button" data-copy aria-label="クイックスタートコマンドをコピー"><span data-copy-label>Copy</span></button></div>
+          <pre><code><span class="comment"># 1. 依存関係をセットアップ</span>
+<span class="prompt">$</span> python -m vlvc setup
+
+<span class="comment"># 2. 環境を診断</span>
+<span class="prompt">$</span> python -m vlvc doctor
+
+<span class="comment"># 3. ローカル Web UI を起動</span>
+<span class="prompt">$</span> python -m vlvc serve</code></pre>
+          <div class="quickstart-foot"><span>localhost:8765</span><span>音声は外部へ送信しません</span></div>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="closing-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="eyebrow"><span></span> OPEN DEVELOPMENT</p>
+        <h2 id="closing-title">声の可能性を、<br />検証可能な形に。</h2>
+        <a class="button button-light" href="https://github.com/Oxojo/VL_VoiceChanger" target="_blank" rel="noreferrer">GitHub でプロジェクトを見る <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="#top"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span><span>VL <strong>VoiceChanger</strong></span></a>
+      <p>Virtual live voice conversion proof of concept.</p>
+      <div><a href="https://github.com/Oxojo/VL_VoiceChanger" target="_blank" rel="noreferrer">GitHub</a><a href="https://github.com/Oxojo/VL_VoiceChanger/tree/main/docs" target="_blank" rel="noreferrer">Docs</a></div>
+    </footer>
+  </body>
+</html>

@@ -10,6 +10,7 @@ logs
 reports
 tests
 docs
+showcase
 build
 dist
 .env
