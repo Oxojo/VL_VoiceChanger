@@ -193,7 +193,9 @@ class GeneratorNSF(nn.Module):
                 xs = rb(x) if xs is None else xs + rb(x)
             x = xs / self.num_kernels
 
-        x = F.leaky_relu(x, 0.1)
+        # 最終段だけは RVC / HiFi-GAN の学習時と同じ 0.01 を使う。
+        # 各アップサンプル段の 0.1 と揃えると、学習済み conv_post への入力が変わる。
+        x = F.leaky_relu(x, negative_slope=0.01)
         x = self.conv_post(x)
         return torch.tanh(x)
 

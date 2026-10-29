@@ -22,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 from engine.audio import load_mono, resample, save_wav  # noqa: E402
 from engine.convert import ConvertOptions, VoiceConverter, f0_to_coarse, interpolate_unvoiced  # noqa: E402
 from engine.model.commons import weight_norm  # noqa: E402
-from engine.model.synthesizer import SynthesizerTrnMs768NSFsid  # noqa: E402
+from engine.model.synthesizer import GeneratorNSF, SynthesizerTrnMs768NSFsid  # noqa: E402
 
 import torch  # noqa: E402
 
@@ -122,6 +122,39 @@ class TestWeightNorm(unittest.TestCase):
 
 class TestSynthesizerShapes(unittest.TestCase):
     """極小構成で推論経路のテンソル形状だけを確認する。"""
+
+    def test_generator_final_activation_matches_trained_slope(self) -> None:
+        torch.manual_seed(3)
+        model = GeneratorNSF(
+            initial_channel=2,
+            resblock="1",
+            resblock_kernel_sizes=[3],
+            resblock_dilation_sizes=[[1, 3, 5]],
+            upsample_rates=[2],
+            upsample_initial_channel=4,
+            upsample_kernel_sizes=[4],
+            gin_channels=0,
+            sr=8000,
+        ).eval()
+        captured = {}
+
+        def before_activation(module, args, out):
+            captured["before"] = out.detach().clone()
+
+        def after_activation(module, args):
+            captured["after"] = args[0].detach().clone()
+
+        h1 = model.resblocks[-1].register_forward_hook(before_activation)
+        h2 = model.conv_post.register_forward_pre_hook(after_activation)
+        try:
+            with torch.no_grad():
+                model(torch.randn(1, 2, 5), torch.full((1, 5), 200.0))
+        finally:
+            h1.remove()
+            h2.remove()
+        self.assertTrue(torch.any(captured["before"] < 0))
+        expected = torch.nn.functional.leaky_relu(captured["before"], negative_slope=0.01)
+        torch.testing.assert_close(captured["after"], expected)
 
     def test_infer_shape(self) -> None:
         torch.manual_seed(0)
