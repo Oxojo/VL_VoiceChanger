@@ -1,8 +1,9 @@
-﻿# 自前エンジン 動作確認レポート
+# 自前エンジン 動作確認レポート
 
-生成日時: 2026-10-28 11:03:36
-ブランチ: feature/self-engine（be72d6b）
+生成日時: 2026-10-29 16:31:28
+ブランチ: feature/self-engine（95600d3）
 実行環境: 3.12.10 torch 2.14.1+cu126 cuda True
+OS: Windows-11-10.0.26200-SP0
 モデル: models\tsukuyomi\tsukuyomi-normal1.pth
 入力: logs\verify\tts-input-ja.wav
 デバイス: cuda / ピッチシフト: 0 半音 / 分割: hop 0.5 秒・context 0.15 秒・crossfade 0.05 秒
@@ -11,12 +12,12 @@
 
 ```text
 モデルと特徴量抽出器を読み込み中...
-  モデル: 40000 Hz / 話者数 109 / 読み込み 3.66 秒
-変換中: logs\verify\tts-input-ja.wav
+  モデル: 40000 Hz / 話者数 109 / 読み込み 3.71 秒
+変換中: C:\Users\oxojo\VL_VoiceChanger\logs\verify\tts-input-ja.wav
 出力: C:\Users\oxojo\VL_VoiceChanger\logs\verify\own-tts-input-ja-cuda.wav
   長さ 7.63 秒 → 7.63 秒 / 40000 Hz / 764 フレーム
   F0 中央値 223.9 Hz / 有声率 52.4 % / RMS 0.1154 → 0.1153
-  所要時間: f0 0.69s, contentvec 0.85s, synth 1.06s, post 0.06s, total 2.68s
+  所要時間: f0 0.79s, contentvec 1.79s, synth 1.33s, post 0.03s, total 3.96s
   JSON: C:\Users\oxojo\VL_VoiceChanger\logs\verify\own-tts-input-ja-cuda.json
 ```
 
@@ -62,9 +63,9 @@ F0 追従（log F0 の相関）    : 0.999
 ```text
 分割変換: hop 0.5s / context 0.15s / crossfade 0.05s / デバイス cuda
 出力: C:\Users\oxojo\VL_VoiceChanger\logs\verify\own-tts-input-ja-cuda-chunk.wav
-  区間数 16 / 音声 7.63 秒 / 処理 15.26 秒
-  RTF 2.000（1.0 未満で実時間より速い）
-  区間あたり遅延 平均 954 ms / 最大 2058 ms
+  区間数 16 / 音声 7.63 秒 / 処理 23.69 秒
+  RTF 3.105（1.0 未満で実時間より速い）
+  区間あたり遅延 平均 1481 ms / 最大 2391 ms
   ライブ成立（最大遅延 < hop）: 不可
 ```
 

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vl-voicechanger"
+version = "0.1.0"
+description = "バーチャルライブ向けリアルタイム音声変換の実証環境（自前エンジン + クロスプラットフォーム CLI）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "VL_VoiceChanger" }]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "soundfile>=0.12",
+    "onnxruntime>=1.20",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+engine = ["torch>=2.6"]
+web = ["fastapi>=0.110", "uvicorn>=0.30", "python-multipart>=0.0.9"]
+
+[project.scripts]
+vlvc = "vlvc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["engine*", "vlvc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

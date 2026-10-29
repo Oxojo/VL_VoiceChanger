@@ -106,7 +106,7 @@
 | ウイルス対策 | 起動直後のスキャン | VC Client フォルダを除外 |
 | 熱 | GPU 温度 | 冷却・負荷軽減 |
 
-再発時は `Test-Stability.ps1` を回し、落ちた時刻を特定できるようにする。
+再発時は `python -m vlvc stability --profile character-a` を回し、落ちた時刻を特定できるようにする。
 
 ### GUI が開かない／画面が白い
 
@@ -127,22 +127,18 @@
 | 起動直後に閉じる | パスに Unicode が含まれていないか確認（ONNX Runtime が失敗する） |
 | ダウンロードが途中で止まる | `vcclient.log` の最終行の時刻を確認。30 分以上進まなければ VC Client を終了して再起動（**部分ファイルは `curl -C -` で再開できる**。下記参照） |
 
-```powershell
-# 進捗の確認（初回起動時）
-Get-Content 'C:\Tools\vcclient_win_cuda\vcclient.log' -Tail 5
-(Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'Start downloading:').Count
-(Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'Downloading completed:').Count
-"取得済み: {0:N0} MB" -f ((Get-ChildItem 'C:\Tools\vcclient_win_cuda\modules' -Recurse -File |
-    Measure-Object Length -Sum).Sum / 1MB)
+```bash
+# モジュール状態（起動中ならこれが一番確実）
+curl -s http://localhost:18000/api/module-manager/modules | python -m json.tool
 
-# 起動中なら API で状態を確認できる（これが一番確実）
-Invoke-RestMethod 'http://localhost:18000/api/module-manager/modules' |
-    ForEach-Object { "{0,-38} valid={1}" -f $_.info.id, $_.valid }
+# ログの末尾（パスは環境に合わせる）
+python -c "from pathlib import Path; print(Path('C:/Tools/vcclient_win_cuda/vcclient.log').read_text(encoding='utf-8', errors='replace')[-3000:])"
 
-# 使用中のポートを確認する
-Get-NetTCPConnection -LocalPort 18000 -ErrorAction SilentlyContinue |
-    Select-Object LocalAddress, LocalPort, State, OwningProcess
+# ポートが開いているか
+python -c "import socket; s=socket.socket(); print('open' if s.connect_ex(('127.0.0.1',18000))==0 else 'closed')"
 ```
+
+`python -m vlvc doctor` でも、起動中なら `/api/module-manager/modules` の有効件数を表示する。
 
 **ダウンロードが止まったときの復旧**（2026-10-28 に実際に発生）:
 
@@ -176,14 +172,14 @@ Get-NetTCPConnection -LocalPort 18000 -ErrorAction SilentlyContinue |
 - index は任意。**index 無しでも動く**ので、まず index を外して切り分ける
 - エディションが `std` になっていないか（**std は RVC 非対応**）
 
-`Register-Model.ps1`（REST API）で失敗する場合は次を確認する。**エラー本文は `vcclient.log` にしか出ない**（API は 400 を返すだけ）。
+`python -m vlvc register-model`（REST API）で失敗する場合は次を確認する。**エラー本文は `vcclient.log` にしか出ない**（API は 400 を返すだけ）。
 
 | 症状・ログ | 原因 | 対処 |
 | :--- | :--- | :--- |
 | `Failed to estimate RVC model` | 一時ファイル名に拡張子が無い（`upload_dir\model_file` など） | **拡張子を保ったファイル名**で `upload_dir` に置く |
 | `No such file or directory: 'upload_dir\\upload_dir\\...'` | `model_file` に `upload_dir\` まで含めた | **ファイル名だけ**を渡す（サーバーが前置する） |
-| `POST /api/slot-manager/slots` が 400 | 上記のいずれか | `Get-Content vcclient.log -Encoding UTF8 -Tail 40` で `Failed to set_new_slot` を確認 |
-| `POST .../slots/dummy/rvc` が 500 | **この URL はドキュメント用のダミー** | `POST /api/slot-manager/slots` を使う（`Register-Model.ps1` が行う） |
+| `POST /api/slot-manager/slots` が 400 | 上記のいずれか | `vcclient.log` の末尾で `Failed to set_new_slot` を確認（上のログ確認コマンド） |
+| `POST .../slots/dummy/rvc` が 500 | **この URL はドキュメント用のダミー** | `POST /api/slot-manager/slots` を使う（`vlvc register-model` が行う） |
 
 > **スロット番号は 0 始まり。** `slot_index=5` は GUI では「6.」と表示される。`model_dir\5\` が実体。
 
@@ -194,9 +190,8 @@ Get-NetTCPConnection -LocalPort 18000 -ErrorAction SilentlyContinue |
   REST の `POST /api/local-voice-changer-interface/operation/start` は音声 I/O スレッドだけを起動し、変換スレッドは起動しない
 - **対処**: `http://localhost:18000/` の GUI で **start** を押す。押すとログに `start_convert_chunk_bulk called` が出る
 
-```powershell
-Select-String 'C:\Tools\vcclient_win_cuda\vcclient.log' -Pattern 'start_convert_chunk_bulk|bulk conversion process is not started' -Encoding UTF8 |
-    Select-Object -Last 5 | ForEach-Object { $_.Line }
+```bash
+python -c "from pathlib import Path; t=Path('C:/Tools/vcclient_win_cuda/vcclient.log').read_text(encoding='utf-8', errors='replace'); print('\n'.join(l for l in t.splitlines() if 'start_convert_chunk_bulk' in l or 'bulk conversion process is not started' in l)[-2000:])"
 ```
 
 ### 録音した WAV が無音（`input.wav` が -90 dB 前後）
@@ -205,7 +200,7 @@ server モードの録音で `input.wav` が無音なら、**マイク入力が�
 
 | 確認 | コマンド / 見方 |
 | :--- | :--- |
-| デバイスの接続状態 | `Get-PnpDevice -Class AudioEndpoint \| Where-Object FriendlyName -match 'マイク'` → `Status` が `OK` か |
+| デバイスの接続状態 | `python -m vlvc doctor` の「音声入出力デバイス」に、使用するマイクが入力として出るか |
 | Windows のマイク許可 | 設定 > プライバシー > マイク（`ConsentStore\microphone` が `Allow`） |
 | 入力レベル | GUI の入力メーターが発話で振れるか |
 | 録音の実値 | `input.wav` の RMS が **-40 dB 以上**あるか |

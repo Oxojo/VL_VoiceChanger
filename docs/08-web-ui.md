@@ -13,21 +13,23 @@
 
 ## 1. 起動
 
-```powershell
+```bash
 # 依存関係（初回のみ。すでに入っていれば不要）
-.\.venv\Scripts\python.exe -m pip install fastapi uvicorn python-multipart
+python -m vlvc setup
 
-# 起動
-.\.venv\Scripts\python.exe -m engine serve
-# → ブラウザで http://127.0.0.1:8765 を開いてください
+# 起動（ブラウザも開く）
+python -m vlvc serve
+
+# 起動だけ（ブラウザを開かない）
+python -m vlvc serve --no-browser
+# → http://127.0.0.1:8765
 ```
 
-`scripts/Start-Web.ps1` でも同じことができる（ポート変更・ブラウザ自動起動つき）。
+`python -m engine serve` でも起動できる（`vlvc serve` は依存確認とブラウザ起動を行う）。
 
-```powershell
-.\scripts\Start-Web.ps1                 # 8765 で起動してブラウザを開く
-.\scripts\Start-Web.ps1 -Port 9000      # ポート変更
-.\scripts\Start-Web.ps1 -NoBrowser      # ブラウザを開かない
+```bash
+python -m vlvc serve --port 9000       # ポート変更
+python -m vlvc serve --no-browser      # ブラウザを開かない
 ```
 
 停止は `Ctrl+C`。
@@ -51,7 +53,7 @@
 4. **変換する** を押すと進捗（段階・%）が出る。完了すると変換後の音声・波形・数値が表示される。
 5. **WAV をダウンロード** で保存。履歴をクリックすると過去の結果を再表示できる。
 
-数値は CLI（`scripts/measure_quality.py`）と同じ指標を使う:
+数値は CLI（`python -m vlvc quality`）と同じ指標を使う:
 F0 中央値・F0 追従（log F0 の相関）・エネルギー包絡の相関・調波性・ピーク/クリップ・
 ノイズフロア（入力 → 出力）。
 分割モードでは RTF・区間あたり遅延・継ぎ目の跳びも出る。
@@ -109,14 +111,14 @@ F0 中央値・F0 追従（log F0 の相関）・エネルギー包絡の相関�
 
 例:
 
-```powershell
-$id = (curl.exe -s -X POST http://127.0.0.1:8765/api/jobs `
-  -F "audio=@logs/verify/tts-input-ja.wav" `
-  -F "model=tsukuyomi/tsukuyomi-normal1" -F "device=cuda" -F "pitch=0" |
-  ConvertFrom-Json).id
+```bash
+id=$(curl -s -X POST http://127.0.0.1:8765/api/jobs \
+  -F "audio=@logs/verify/tts-input-ja.wav" \
+  -F "model=tsukuyomi/tsukuyomi-normal1" -F "device=cuda" -F "pitch=0" \
+  | python -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-Invoke-RestMethod "http://127.0.0.1:8765/api/jobs/$id" | ConvertTo-Json -Depth 5
-Invoke-WebRequest "http://127.0.0.1:8765/api/jobs/$id/audio" -OutFile out.wav
+curl -s "http://127.0.0.1:8765/api/jobs/$id" | python -m json.tool
+curl -s "http://127.0.0.1:8765/api/jobs/$id/audio" -o out.wav
 ```
 
 ### 入力音声だけにノイズ除去をかける（任意ステップ）
@@ -124,13 +126,15 @@ Invoke-WebRequest "http://127.0.0.1:8765/api/jobs/$id/audio" -OutFile out.wav
 画面の「ノイズ除去を試す」ボタンと同じ処理。**変換せずに**音声だけをきれいにする。
 数秒の音声なら 0.1 秒未満で返るので、結果を確認してから変換できる。
 
-```powershell
-$r = curl.exe -s -X POST http://127.0.0.1:8765/api/denoise `
-  -F "audio=@logs/verify/tts-input-ja-noisy-loud.wav" `
-  -F "strength=0.7" -F "dehum=50" | ConvertFrom-Json
+```bash
+curl -s -X POST http://127.0.0.1:8765/api/denoise \
+  -F "audio=@logs/verify/tts-input-ja-noisy-loud.wav" \
+  -F "strength=0.7" -F "dehum=50" -o denoise.json
 
-"$($r.before_db) → $($r.after_db) dBFS（$($r.seconds) 秒）"
-Invoke-WebRequest "http://127.0.0.1:8765$($r.audio)" -OutFile cleaned.wav
+python -c "import json; d=json.load(open('denoise.json', encoding='utf-8')); print(f\"{d['before_db']} -> {d['after_db']} dBFS ({d['seconds']} 秒)\"); print(d['audio'])"
+
+# 表示された audio のパス（例: /api/denoise/xxxx/audio）で保存
+curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
 ```
 
 `strength` は 0〜1、`dehum` は `0` / `50` / `60`。結果は直近 20 件だけ保持する。

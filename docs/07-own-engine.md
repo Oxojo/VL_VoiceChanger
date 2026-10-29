@@ -66,15 +66,19 @@ VC Client は変換までの経路が GUI 依存で、ファイル変換 API も
 
 ## 3. セットアップ
 
-```powershell
-# Python 3.12（3.14 は PyTorch 非対応のため使わない）
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r engine\requirements.txt
+どの OS でも同じコマンドでよい（Python 3.12 推奨。3.14 は PyTorch 非対応のため使わない）。
 
-# GPU（RTX 3060 等）を使う場合は CUDA 版 torch に入れ替える
-.\.venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu126 `
-    --force-reinstall --no-deps "torch==2.14.1+cu126"
+```bash
+# 仮想環境 .venv と依存関係（GPU を使う場合は --cuda）
+python -m vlvc setup
+python -m vlvc setup --cuda    # CUDA 版 torch（cu126）に入れ替える
+```
+
+```text
+従来の手動セットアップ:
+  python -m venv .venv
+  .venv/Scripts/python.exe -m pip install -r engine/requirements.txt   # Windows
+  .venv/bin/python -m pip install -r engine/requirements.txt           # macOS / Linux
 ```
 
 `.venv/` は Git 管理外です（`.gitignore`）。
@@ -87,33 +91,29 @@ ONNX モデルの場所は次の順で探します（`engine/config.py`）。
 
 ## 4. 使い方
 
-```powershell
+```bash
 # モデルの構成を確認
-.\.venv\Scripts\python.exe -m engine inspect -m models\tsukuyomi\tsukuyomi-normal1.pth
+python -m engine inspect -m models/tsukuyomi/tsukuyomi-normal1.pth
 
 # 変換（既定: ピッチ 0、40 kHz 出力）
-.\.venv\Scripts\python.exe -m engine convert `
-    -m models\tsukuyomi\tsukuyomi-normal1.pth `
-    -i logs\verify\tts-input-ja.wav `
-    -o logs\verify\own-ja.wav `
-    --json logs\verify\own-ja.json
+python -m vlvc convert -m models/tsukuyomi/tsukuyomi-normal1.pth \
+    -i logs/verify/tts-input-ja.wav -o logs/verify/own-ja.wav \
+    --json logs/verify/own-ja.json
 
 # 出力の F0・音量を確認
-.\.venv\Scripts\python.exe -m engine analyze -i logs\verify\own-ja.wav
+python -m engine analyze -i logs/verify/own-ja.wav
 
 # 入力と出力を数値で比較（F0 追従・包絡・調波性・クリップ）
-.\.venv\Scripts\python.exe scripts\measure_quality.py `
-    logs\verify\tts-input-ja.wav logs\verify\own-ja.wav
+python -m vlvc quality logs/verify/tts-input-ja.wav logs/verify/own-ja.wav
 
 # 分割変換の速度（ライブ成立するか）を計測
-.\.venv\Scripts\python.exe -m engine bench `
-    -m models\tsukuyomi\tsukuyomi-normal1.pth `
-    -i logs\verify\tts-input-ja.wav `
-    -o logs\verify\own-ja-chunk.wav `
+python -m engine bench -m models/tsukuyomi/tsukuyomi-normal1.pth \
+    -i logs/verify/tts-input-ja.wav -o logs/verify/own-ja-chunk.wav \
     --hop 0.5 --context 0.15 --crossfade 0.05 --device cuda
 ```
 
-`scripts/Convert-Audio.ps1` からも同じことができます（引数は CLI に素通し）。
+`vlvc convert` は `python -m engine convert` に引数をそのまま渡します。
+`vlvc selftest` で「変換 → 解析 → 品質 → 分割変換」をまとめて実行し、`reports/own-engine-latest.md` を更新できます。
 
 ### 主なオプション
 
@@ -154,7 +154,7 @@ ONNX モデルの場所は次の順で探します（`engine/config.py`）。
 
 「F0 が入力に追従し、エネルギー包絡も一致し、クリップせず有声的」であることを
 数値で確認しました。声質（話者性）の最終判断は聴取で行います。
-この比較は `scripts/measure_quality.py` で再現できます。
+この比較は `python -m vlvc quality` で再現できます。
 
 ### 分割変換（ライブ想定）
 
@@ -196,7 +196,7 @@ ONNX モデルの場所は次の順で探します（`engine/config.py`）。
 
 ### ブラウザから使う
 
-`python -m engine serve`（または `scripts\Start-Web.ps1`）で Web UI が起動する。
+`python -m engine serve`（または `python -m vlvc serve`）で Web UI が起動する。
 音声のドロップ／マイク録音・設定・試聴・数値表示・WAV 保存までブラウザで完結する。
 API と画面の説明は [08-web-ui.md](08-web-ui.md)。
 

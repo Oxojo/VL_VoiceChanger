@@ -1,12 +1,16 @@
-# 自前エンジンの依存関係（Python 3.12 / Windows 想定）
-# 導入: .venv\Scripts\python.exe -m pip install -r engine\requirements.txt
+# 自前エンジンの依存関係（Python 3.12 / Windows・macOS・Linux）
+# 導入: .venv の python で `python -m pip install -r engine/requirements.txt`
+#       （CLI からは `vlvc setup`）
 numpy>=2.0
 scipy>=1.14
 soundfile>=0.12
 onnxruntime>=1.20
 
+# プロセス監視（vlvc stability / doctor）
+psutil>=5.9
+
 # GPU を使う場合は CUDA 版を入れる（CPU 版を置き換える）
-#   .venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cu126 ^
+#   python -m pip install --index-url https://download.pytorch.org/whl/cu126 \
 #       --force-reinstall --no-deps "torch==2.14.1+cu126"
 torch>=2.6
 
