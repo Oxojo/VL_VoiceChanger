@@ -50,6 +50,11 @@ class StreamingChunkedConverter:
     samples, as ChunkedConverter does).  Neither method waits for a
     microphone or speaker: the caller owns device I/O and worker queues.
 
+    If inference fails, input remains buffered but no output or completed-
+    chunk statistics from that call are committed. Retry with push([]) or
+    flush(), respectively, or call reset() to discard the stream. Backend
+    internal state is not rolled back.
+
     After each conversion only the necessary left context is retained.
     The right lookahead is `context_seconds + crossfade_seconds`, in
     addition to the hop needed to assemble one output block.
@@ -110,23 +115,45 @@ class StreamingChunkedConverter:
             self._unframed = pending[n:].copy()
             self.stats.input_frames = self._total_frames
 
-        output = []
-        required_future = self.context_frames + self.fade_frames
-        while self._total_frames >= self._next_frame + self.hop_frames + required_future:
-            output.append(self._convert_chunk(self._next_frame + self.hop_frames))
-        return self._join(output)
+        return self._drain(final=False)
 
     def flush(self) -> np.ndarray:
         """Complete all whole frames; discard a final incomplete 10 ms frame."""
         if self._closed:
             return self._empty()
-        output = []
-        while self._next_frame < self._total_frames:
-            output.append(self._convert_chunk(min(self._next_frame + self.hop_frames, self._total_frames)))
+        output = self._drain(final=True)
         self._closed = True
         self._unframed = self._empty()
         self._pending_fade = self._empty()
-        return self._join(output)
+        return output
+
+    def _drain(self, *, final: bool) -> np.ndarray:
+        # A call may convert several chunks before returning any audio. If a
+        # later chunk fails, retain all unreturned audio for retry. These array
+        # references are safe snapshots: _convert_chunk replaces buffer/fade
+        # arrays rather than modifying them in place.
+        checkpoint = (
+            self._buffer, self._buffer_start, self._next_frame, self._pending_fade,
+            self.stats.chunks, self.stats.emitted_frames, self.stats.process_seconds,
+            len(self.stats.latencies),
+        )
+        output = []
+        required_future = self.context_frames + self.fade_frames
+        try:
+            while self._next_frame < self._total_frames:
+                end = self._next_frame + self.hop_frames
+                if not final and self._total_frames < end + required_future:
+                    break
+                output.append(self._convert_chunk(min(end, self._total_frames)))
+            return self._join(output)
+        except Exception:
+            (
+                self._buffer, self._buffer_start, self._next_frame, self._pending_fade,
+                self.stats.chunks, self.stats.emitted_frames, self.stats.process_seconds,
+                latency_count,
+            ) = checkpoint
+            del self.stats.latencies[latency_count:]
+            raise
 
     def _convert_chunk(self, end: int) -> np.ndarray:
         start = self._next_frame
@@ -144,18 +171,28 @@ class StreamingChunkedConverter:
         t0 = time.perf_counter()
         out, _ = self.converter.convert_array(segment, self.options)
         dt = time.perf_counter() - t0
-        self.stats.chunks += 1
-        self.stats.latencies.append(dt)
-        self.stats.process_seconds += dt
 
-        # Align with the existing 100 fps frame contract even for truncated
-        # or resampled backend output.
+        # The backend sees the *padded* input, which may be longer than the
+        # real final segment (<100 ms). Validate against that inference size,
+        # not the final committed output size. Large mismatches are an error,
+        # not silent audio gaps or time shifts.
+        expected_model_samples = (segment.size // FRAME) * self.samples_per_frame
         wanted = (right - left) * self.samples_per_frame
         out = np.asarray(out, dtype=np.float32).reshape(-1)
+        if abs(out.size - expected_model_samples) > self.samples_per_frame:
+            raise ValueError(
+                f"converter returned {out.size} samples; expected {expected_model_samples} "
+                "(more than one 10 ms output frame different)"
+            )
         if out.size < wanted:
             out = np.pad(out, (0, wanted - out.size))
         else:
             out = out[:wanted]
+
+        # Publish completed-chunk statistics only after validating the result.
+        self.stats.chunks += 1
+        self.stats.latencies.append(dt)
+        self.stats.process_seconds += dt
 
         skip = (start - left) * self.samples_per_frame
         take = (min(end + self.fade_frames, self._total_frames) - start) * self.samples_per_frame

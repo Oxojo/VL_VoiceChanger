@@ -6,12 +6,40 @@
 ![Web UI](images/web-ui.png)
 
 変換そのものはこの PC 上の Python プロセス（PyTorch + ONNX Runtime）で実行する。
-ブラウザは UI と音声の受け渡しだけを担当するため、**音声が外部に送信されることはない**。
+ブラウザは UI と音声の受け渡しを担当する。音声は接続先のサーバーへ送信される。
+自分の PC 上でサーバーを起動した場合は、その PC 内で処理される。
 
 - 既定の待ち受け: `http://127.0.0.1:8765`（この PC からのみ）
 - 実装: `engine/web/server.py`（FastAPI）+ `engine/web/static/`（HTML / CSS / JS、ビルド不要）
 
 ## 1. 起動
+
+### 開発用: npm run dev
+
+Node.js 18 以上と Python 3.10 以上をインストールし、リポジトリのルートで実行する。
+
+```bash
+npm run dev
+```
+
+初回に Python 依存が不足していれば `.venv` を作り、CPU 版 PyTorch と Web UI の依存を導入する。
+Node の外部依存はないので `npm install` は不要。
+準備が済むと `http://127.0.0.1:3000` で Web UI が開く。
+Windows/macOS や GUI のある Linux ではブラウザを自動で開く。ヘッドレス環境は表示されたアドレスを手動で開く。
+Python の変更は自動リロード、UI の変更はブラウザ更新で反映する。停止は Ctrl+C。
+
+```bash
+npm run dev -- --port 9000
+npm run dev -- --no-open
+npm run dev -- --open
+npm run setup
+```
+
+既存の仮想環境を有効化していればそれを使う。`VLVC_PYTHON` で Python 実行ファイルを指定することも可能。
+CUDA 版 PyTorch がインストール済みなら保持する。初回の依存導入にはネットワーク接続が必要。
+モデルなしでも画面は確認できるが、マイク変換には RVC / ContentVec / RMVPE の資産が必要。
+
+### Python から起動
 
 ```bash
 # 依存関係（初回のみ。すでに入っていれば不要）
@@ -58,6 +86,43 @@ F0 中央値・F0 追従（log F0 の相関）・エネルギー包絡の相関�
 ノイズフロア（入力 → 出力）。
 分割モードでは RTF・区間あたり遅延・継ぎ目の跳びも出る。
 
+### マイクのストリーミング変換（試験機能）
+
+録音が終わるのを待たずに、話しながら変換音声を再生できる。
+
+```bash
+python -m pip install -e ".[engine,web]"
+python -m engine serve
+```
+
+1. `models/` の RVC v2 `.pth` と ContentVec/RMVPE の ONNX を用意する。
+   ONNX の場所は従来どおり `modules/` または `VL_CONTENTVEC_ONNX` / `VL_RMVPE_ONNX`。
+2. サーバーの画面を localhost または HTTPS で開く。**ヘッドホン**を使用する。
+3. モデル・デバイス・ピッチなどを選び、ノイズ除去・ハム除去を **0** にする。
+   「分割」を選ぶと hop / context / crossfade の設定が表示される。
+   マイク変換は「一括」を選んでいてもストリーミングで処理される。
+4. **マイク変換を開始**を押してマイクを許可する。モデル準備後に音声の送信が始まり、
+   変換できた区間から再生される。入力/出力秒数、推論 RTF・最大推論時間、
+   再生途切れ回数、送信待ち・再生待ちを確認できる。
+5. **停止して残りを再生**を押すと、マイクを停止して送信待ちと残りの完成フレームを処理する。
+   さらに **すぐに切断**を押すと残りを破棄して停止する。停止後は再開できる。
+
+既定設定では最初の推論までに **700 ms** の入力が必要で、推論・通信・再生の時間が加わる。
+因果モデルや特徴量キャッシュではなく、ライブ用途で使える低遅延・音質は保証しない。
+CPU などで処理が遅いと送信待ちが 2 秒を超えて停止する。hop・デバイスを見直して再開する。
+再生待ちも 3 秒を超えたら停止し、遅延を際限なく蓄積しない。1 セッションは 180 秒まで。
+最初の起動や初回推論が遅い場合も、この停止条件が適用される。
+
+マイク変換とファイル変換、複数のマイク変換は同時実行できない。別のタブも含めて停止・完了してから再接続する。
+通信切断やマイク拒否・エラー時は音声トラックと再生キューを解放する。
+切断時点で推論中だった 1 区間が終わるまで、サーバーが次の接続を待たせる場合がある。
+タブをバックグラウンドにするとブラウザが音声処理を中断する場合があるため、画面を開いたまま使う。
+このモードは入力や出力を履歴・WAV に保存しない。従来の録音・ファイル変換はそのまま利用できる。
+CUDA の選択は合成器に適用され、ONNX 特徴抽出は現在 CPU のまま。
+
+公開サーバーでは HTTPS と WebSocket Upgrade の転送が必要。複数 worker ではセッションの排他が共有されないため、
+既存の運用どおり **1 worker** で起動する。認証は既存の公開サーバー側で管理する。
+
 ## 3. GPU での実測（2026-10-28 / RTX 3060 Laptop 6 GB）
 
 入力 7.63 秒（`logs/verify/tts-input-ja.wav`）、モデル `tsukuyomi-normal1`（40 kHz）。
@@ -80,6 +145,7 @@ F0 中央値・F0 追従（log F0 の相関）・エネルギー包絡の相関�
 | メソッド | パス | 内容 |
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | torch / CUDA / 既定デバイス / 制限値 |
+| `WebSocket` | `/api/stream` | マイクの逐次変換（プロトコルは下記） |
 | `GET` | `/api/models` | モデル一覧（`id` は `models/` からの相対パス、拡張子なし） |
 | `GET` | `/api/models/{id}` | サンプリングレート・話者数・バージョン |
 | `POST` | `/api/jobs` | 変換ジョブ作成（multipart。`audio` + 設定） |
@@ -139,6 +205,45 @@ curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
 
 `strength` は 0〜1、`dehum` は `0` / `50` / `60`。結果は直近 20 件だけ保持する。
 
+### WebSocket のストリーミングプロトコル
+
+同じサーバーの `/api/stream` に接続する。別 origin のブラウザ接続は拒否する。
+
+1. JSON の開始設定を送る。例:
+   `{"type":"start","model":"tsukuyomi/tsukuyomi-normal1","device":"auto","hop":0.5,"context":0.15,"crossfade":0.05}`。
+   `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr` も指定できる。
+   `denoise` / `dehum` は 0 のみ。範囲外の設定や未定義フィールドは拒否される。
+2. サーバーから `{"type":"ready","input_sr":16000,"output_sr":40000,...}` が返る。
+   `buffer_ms` は入力蓄積の下限で、実測遅延ではない。
+3. **16 kHz mono / little-endian float32** をバイナリで送る。推奨 320 サンプル（20 ms）、
+   最大 1600 サンプル（100 ms）。WAV ヘッダーは付けない。
+   1 パケットごとに `ack` が返るまで次を送らない。
+4. 出力ができた場合、`ack` の前に **ready の output_sr / mono / little-endian float32**
+   のバイナリが返る。`ack` は入力がまだ蓄積中でも必ず返り、フレーム数と推論統計を含む。
+5. `{"type":"stop"}` を送ると残りを flush し、バイナリ音声（あれば）、`done`、正常切断の順に返る。
+   入力末尾の 10 ms 未満の端数だけを捨てる。切断後の再接続は新しい状態から始まる。
+
+`{"type":"error","message":"..."}` は設定・モデル不足・異常出力・受信タイムアウトなどを示す。
+初期設定は 10 秒以内、音声や stop の間隔は 30 秒以内。180 秒を超える入力は拒否する。
+ストリーミング中のファイルジョブ作成は HTTP 409、別の変換が実行中のストリーム接続は error になる。
+
+テスト:
+
+```bash
+python -m pip install -e ".[engine,web,test]"
+python -m unittest discover -s tests -v
+node --test tests/test_stream_audio.mjs
+
+# ブラウザの結合テスト（実モデルの代わりにテスト専用の模擬変換器を使用）
+python -m pip install playwright
+python -m playwright install chromium
+python tests/browser_streaming_smoke.py -v
+```
+
+システムの Chromium も利用可能。`VLVC_TEST_CHROMIUM` で実行ファイルを指定できる。
+ブラウザテストは模擬マイクの既知波形を使い、送信・逐次再生・停止・再開・異常時の解放を確認する。
+実モデルの音質や GPU 性能はこのテストの対象外。
+
 ## 5. 設計と制約
 
 - **ジョブは 1 本のワーカースレッドで直列実行**。GPU を奪い合わず、
@@ -153,16 +258,18 @@ curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
   画面を直しても古い JavaScript が使われない（それでも古い画面が出る場合は `Ctrl+F5`）。
 - 待ち受けは既定で **127.0.0.1 のみ**。同じ LAN から使う場合だけ `--host 0.0.0.0` にする
   （認証は無いので、共用ネットワークでは公開しない）。
-- 音声デバイス（マイク → スピーカー）のリアルタイム経路は未実装。
-  現状の「分割モード」は**録音済み音声を区間分割して処理し、速度を測る**もの。
+- 「分割モード」でのファイル変換は**録音済み音声を区間分割して処理し、速度を測る**もの。
+  マイクの逐次送信・再生には別の「マイク変換を開始」ボタンを使う。
 
 ## 6. トラブルシューティング
 
 | 症状 | 確認すること |
 | :--- | :--- |
-| 起動時に `ModuleNotFoundError: fastapi` | `pip install fastapi uvicorn python-multipart` |
+| 起動時に `ModuleNotFoundError: fastapi` | `pip install -e ".[engine,web]"` |
 | 画面は出るがモデルが空 | `models/**/*.pth` に RVC v2 のモデルを置く（v1 は非対応） |
 | 「モデルが見つかりません」 | モデルを置いた後にページを再読み込みする |
 | 変換が遅い / CPU になる | ヘッダーのバッジが `CPU のみ` なら CUDA 版 torch か GPU を確認 |
 | 音声が再生されない | 変換完了後にブラウザの自動再生制限で止まる場合は、プレイヤーの再生を押す |
 | マイクが使えない | ブラウザのマイク許可と、Windows の入力デバイスを確認（`docs/03-troubleshooting.md`） |
+| WebSocket に接続できない | web extras の再インストール、リバースプロキシの Upgrade 転送、HTTPS と Host/Origin の一致を確認 |
+| 「入力に追いつかない」で停止 | 送信待ちが 2 秒を超えている。hop・デバイスを見直す。初回推論のウォームアップも含む |

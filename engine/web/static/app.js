@@ -145,7 +145,8 @@ function renderInput(blob, samples, name, info) {
   const player = $("inputAudio");
   player.src = URL.createObjectURL(blob);
   player.classList.remove("hidden");
-  $("convertBtn").disabled = false;
+  $("convertBtn").disabled = document.body.dataset.streaming === "true";
+  if (document.body.dataset.streaming === "true") $("convertBtn").dataset.liveDisabled = "false";
   $("cleanBtn").disabled = false;
   $("convertHint").textContent = "変換できます";
 }
@@ -257,6 +258,7 @@ function revertInput() {
 
 // ------------------------------------------------------------------ 録音
 async function startRecording() {
+  if (document.body.dataset.streaming === "true") return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast("このブラウザはマイク録音に対応していません");
     return;
@@ -336,11 +338,13 @@ function collectForm() {
 }
 
 async function startConvert() {
+  if (document.body.dataset.streaming === "true") return;
   if (!state.wavBlob) {
     toast("先に音声を選ぶか録音してください");
     return;
   }
   $("convertBtn").disabled = true;
+  document.body.dataset.converting = "true";
   $("cancelBtn").classList.remove("hidden");
   $("idlePanel").classList.add("hidden");
   $("resultPanel").classList.add("hidden");
@@ -390,6 +394,7 @@ function pollJob(jobId) {
 }
 
 function failJob(message) {
+  document.body.dataset.converting = "false";
   $("progressPanel").classList.add("hidden");
   $("errorBox").textContent = message;
   $("errorBox").classList.remove("hidden");
@@ -400,6 +405,7 @@ function failJob(message) {
 }
 
 async function finishJob(job) {
+  document.body.dataset.converting = "false";
   $("convertBtn").disabled = false;
   $("cancelBtn").classList.add("hidden");
   $("progressPanel").classList.add("hidden");
@@ -544,6 +550,7 @@ async function init() {
       } catch (_) { /* 詳細が取れなくても変換はできる */ }
     });
     if (models.length) select.dispatchEvent(new Event("change"));
+    window.dispatchEvent(new Event("vlvc-models-ready"));
   } catch (err) {
     toast(`モデル一覧を取得できません: ${err.message}`);
   }

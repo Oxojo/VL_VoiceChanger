@@ -337,7 +337,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     url = f"http://{args.host}:{args.port}"
     print(f"ブラウザで {url} を開いてください（停止は Ctrl+C）")
-    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level, access_log=False)
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level,
+                access_log=False, ws_max_size=6400, ws_max_queue=4)
     return 0
 
 

@@ -18,11 +18,25 @@ preserving all existing offline and VC Client commands.
 - `flush()` handles the final short block and drops a final incomplete
   10 ms frame, matching the current offline chunking convention.
 - Records per-inference timings and RTF (not end-to-end latency).
+- Validates the waveform length returned by the backend against the
+  **padded model input length**. Differences exceeding one 10 ms output
+  frame raise `ValueError` instead of silently filling large gaps with
+  zeros. Validation happens before committing chunk statistics or samples.
+  Small resampling/rounding differences (up to one frame) remain tolerated.
+- If a later inference in one `push()` or `flush()` fails, the adapter
+  restores its output position, retained context/fade and completed-chunk
+  statistics to before that call. Received input stays buffered. After
+  correcting the backend, retry with `push([])` or `flush()` respectively;
+  do not resend the same input. `reset()` discards it instead. Backend
+  internal state is not restored, so stateful backends may require reset.
 
 The existing RVC model still recomputes RMVPE, ContentVec and the synth
 for each overlapping window. Feature caching, cached causal convolutions,
 sound-device I/O, low-latency scheduling and StreamVC weights are **not
-implemented**. The ONNX feature extractors continue using CPU execution
+implemented in the adapter**. The Web UI now connects browser microphone
+capture and incremental playback through `/api/stream`; see
+[Web UI instructions](08-web-ui.md#マイクのストリーミング変換試験機能).
+The ONNX feature extractors continue using CPU execution
 providers by default, even if the RVC synthesizer uses CUDA.
 
 **Do not call `push()` from a real-time audio callback.** The method runs
@@ -97,8 +111,10 @@ this configuration is not suitable for interactive low-latency live use.
    / cache investigation. Merely decreasing `hop` often *increases*
    redundant inference overhead. A causal StreamVC backend should
    implement explicit encoder, F0 and decoder state.
-5. **Audio device and queues**: dedicated input/output callbacks,
-   worker, timestamped PCM blocks and underrun/overrun metrics.
+5. **Audio device and queues**: the Web UI now provides AudioWorklet capture,
+   a serial inference worker, bounded input/playback queues and playback
+   underrun counts. Native audio I/O, timestamped end-to-end latency and
+   low-latency model scheduling remain future work.
 6. **Verification**: test actual RTF p50/p95/max, algorithmic latency,
    microphone-to-speaker latency, quality and click-free boundaries.
 
@@ -109,7 +125,32 @@ python -m unittest discover -s tests -p 'test_streaming.py' -v
 python -m unittest discover -s tests -v
 ```
 
-The tests use an identity mock; no model weights or GPU are needed.
-They check arbitrary input boundaries, sample-exact output length,
-correct crossfade, bounded left history, final tails, reset and
-validation of offline-only preprocessing.
+The unit tests use model-free fakes, so they can run without model
+weights or GPU. In addition to the identity mock, the regression suite
+uses a converter producing **different waveforms per chunk** and
+compares the incremental assembly to the pre-existing offline
+`ChunkedConverter.process()` for varied input lengths, fade widths and
+arbitrary input block boundaries. Further cases cover:
+
+- 1/7/160/320-sample input arrivals and a final partial (<10ms) frame.
+- One-frame (<100ms) input padded for model inference, but emitted at
+  exactly its original length.
+- 48 kHz synthesis output length and audio-sample alignment.
+- Fade endpoints (1→2 and 2→3), avoiding silent double/missing mixing.
+- A faulty backend returning a waveform 50ms shorter than expected:
+  the streaming adapter rejects it **without marking the chunk
+  complete**.
+
+**Verification note:** These are deterministic unit-level cases.
+They do not validate the actual ContentVec, RMVPE or RVC model
+weights, quality of live output or end-to-end latency. Run the full
+repository tests and model-based benchmarks in the environment that
+has its ONNX assets and PyTorch dependencies before merging.
+
+For a short final chunk, `StreamingChunkedConverter` pads the input
+to 100 ms for the backend's minimum-length requirement and trims the
+output back to the original number of 10ms frames. The offline
+`ChunkedConverter` is left unchanged and may reject a standalone
+final segment shorter than 100ms with the real converter. This is
+an intentional documented behavioral difference, not strict
+model-output equivalence for those very short inputs.

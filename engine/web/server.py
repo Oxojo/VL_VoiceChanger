@@ -2,7 +2,8 @@
 
     python -m engine serve
 
-ブラウザで http://127.0.0.1:8765 を開くと、音声ファイルの変換・試聴ができる。
+ブラウザで http://127.0.0.1:8765 を開くと、音声ファイルの変換・試聴と
+マイクのストリーミング変換ができる。
 変換は Python 側（このプロセス）で実行し、ブラウザは UI と音声の受け渡しだけを担当する。
 
 設計上の前提:
@@ -33,6 +34,7 @@ from ..convert import ConvertOptions, VoiceConverter
 from ..denoise import noise_floor_db, reduce_noise
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
+from .stream import register_stream_routes
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODELS_DIR = REPO_ROOT / "models"
@@ -145,6 +147,7 @@ class JobManager:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vc-job")
         self._converters: dict[tuple[str, str], VoiceConverter] = {}
         self._model_info: dict[str, dict] = {}
+        self._stream_active = False
         WORK_DIR.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------- 参照系
@@ -183,6 +186,9 @@ class JobManager:
 
     # -------------------------------------------------------- 実行系
     def submit(self, job: Job, upload: UploadFile) -> Job:
+        with self._lock:
+            if self._stream_active:
+                raise HTTPException(status_code=409, detail="ストリーミングを停止してからファイル変換してください")
         job_dir = WORK_DIR / job.id
         job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -212,11 +218,24 @@ class JobManager:
         job.input_path = input_path
         job.input_seconds = round(seconds, 3)
         with self._lock:
+            if self._stream_active:
+                input_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=409, detail="ストリーミングを停止してからファイル変換してください")
             self._jobs[job.id] = job
             self._order.append(job.id)
             self._trim_locked()
         self._executor.submit(self._run, job)
         return job
+
+    def reserve_stream(self) -> None:
+        with self._lock:
+            if self._stream_active or any(j.status in {"queued", "running"} for j in self._jobs.values()):
+                raise ValueError("別の変換を実行中です。完了または停止してから再接続してください")
+            self._stream_active = True
+
+    def release_stream(self) -> None:
+        with self._lock:
+            self._stream_active = False
 
     def cancel(self, job_id: str) -> Job:
         job = self.get(job_id)
@@ -407,6 +426,8 @@ class DenoiseStore:
 manager = JobManager()
 denoise_store = DenoiseStore()
 app = FastAPI(title="VL VoiceChanger", docs_url="/api/docs", redoc_url=None)
+
+register_stream_routes(app, manager)
 
 
 # ------------------------------------------------------------------ ルート
@@ -614,7 +635,7 @@ def index() -> HTMLResponse:
     stamp = int(
         max(
             (STATIC_DIR / name).stat().st_mtime
-            for name in ("index.html", "app.js", "style.css")
+            for name in ("index.html", "app.js", "style.css", "live.js", "stream-audio.js", "stream-capture.js")
         )
     )
     html = html.replace("?v=__BUILD__", f"?v={stamp}")
