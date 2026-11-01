@@ -144,18 +144,28 @@ class StreamingChunkedConverter:
         t0 = time.perf_counter()
         out, _ = self.converter.convert_array(segment, self.options)
         dt = time.perf_counter() - t0
-        self.stats.chunks += 1
-        self.stats.latencies.append(dt)
-        self.stats.process_seconds += dt
 
-        # Align with the existing 100 fps frame contract even for truncated
-        # or resampled backend output.
+        # The backend sees the *padded* input, which may be longer than the
+        # real final segment (<100 ms). Validate against that inference size,
+        # not the final committed output size. Large mismatches are an error,
+        # not silent audio gaps or time shifts.
+        expected_model_samples = (segment.size // FRAME) * self.samples_per_frame
         wanted = (right - left) * self.samples_per_frame
         out = np.asarray(out, dtype=np.float32).reshape(-1)
+        if abs(out.size - expected_model_samples) > self.samples_per_frame:
+            raise ValueError(
+                f"converter returned {out.size} samples; expected {expected_model_samples} "
+                "(more than one 10 ms output frame different)"
+            )
         if out.size < wanted:
             out = np.pad(out, (0, wanted - out.size))
         else:
             out = out[:wanted]
+
+        # Publish completed-chunk statistics only after validating the result.
+        self.stats.chunks += 1
+        self.stats.latencies.append(dt)
+        self.stats.process_seconds += dt
 
         skip = (start - left) * self.samples_per_frame
         take = (min(end + self.fade_frames, self._total_frames) - start) * self.samples_per_frame
