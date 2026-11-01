@@ -40,6 +40,30 @@ def _fmt_seconds(sec: float) -> str:
     return f"{sec:.2f} 秒"
 
 
+def _ort_providers(enable_cuda: bool) -> list[str] | None:
+    """Select ONNX GPU execution explicitly instead of assuming torch CUDA implies it."""
+    if not enable_cuda:
+        return None
+    import onnxruntime as ort
+
+    if "CUDAExecutionProvider" not in ort.get_available_providers():
+        raise RuntimeError(
+            "ONNX CUDA provider is not installed. Install a compatible onnxruntime-gpu "
+            "and verify its CUDA/cuDNN runtime before using --ort-cuda."
+        )
+    return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+
+def _verify_ort_cuda(converter: VoiceConverter, enable_cuda: bool) -> None:
+    if not enable_cuda:
+        return
+    for name in ("contentvec", "rmvpe"):
+        providers = getattr(converter, name).session.get_providers()
+        if not providers or providers[0] != "CUDAExecutionProvider":
+            raise RuntimeError(f"{name}: expected CUDAExecutionProvider, got {providers}")
+        print(f"  {name} ONNX providers: {providers}")
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     ckpt = load_checkpoint(args.model)
     model, info = build_model(ckpt, path=args.model)
@@ -71,7 +95,9 @@ def cmd_convert(args: argparse.Namespace) -> int:
         device=args.device,
         contentvec_path=args.contentvec,
         rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
     )
+    _verify_ort_cuda(conv, args.ort_cuda)
     print(
         f"  モデル: {conv.info.sample_rate} Hz / 話者数 {conv.info.speakers} / "
         f"読み込み {_fmt_seconds(conv.load_seconds)}"
@@ -190,7 +216,9 @@ def cmd_bench(args: argparse.Namespace) -> int:
         device=args.device,
         contentvec_path=args.contentvec,
         rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
     )
+    _verify_ort_cuda(conv, args.ort_cuda)
     wav = load_mono(args.input, SAMPLE_RATE)
     cfg = ChunkConfig(
         hop_seconds=args.hop,
@@ -243,7 +271,9 @@ def cmd_stream_bench(args: argparse.Namespace) -> int:
         device=args.device,
         contentvec_path=args.contentvec,
         rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
     )
+    _verify_ort_cuda(conv, args.ort_cuda)
     wav = load_mono(args.input, SAMPLE_RATE)
     cfg = ChunkConfig(
         hop_seconds=args.hop,
@@ -334,6 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pc.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pc.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
+    pc.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
     pc.add_argument("--json", default=None, help="結果 JSON の保存先")
     pc.set_defaults(func=cmd_convert)
 
@@ -359,6 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pb.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pb.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
+    pb.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
     pb.set_defaults(func=cmd_bench)
 
     pbs = sub.add_parser("stream-bench", help="逐次入力シミュレーション（低遅延推論ではない）")
@@ -377,6 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     pbs.add_argument("--device", default="cpu")
     pbs.add_argument("--contentvec", default=None)
     pbs.add_argument("--rmvpe", default=None)
+    pbs.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
     pbs.set_defaults(func=cmd_stream_bench)
 
     pn = sub.add_parser("denoise", help="ノイズ除去だけを行う（変換なし）")
