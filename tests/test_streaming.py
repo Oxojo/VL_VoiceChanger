@@ -225,6 +225,95 @@ class TestStreamingChunkedConverter(unittest.TestCase):
         self.assertEqual(stream.stats.emitted_frames, 0)
         self.assertEqual(stream._next_frame, 0)
 
+    def test_later_push_failure_preserves_unreturned_audio(self) -> None:
+        class FailOnceConverter(IdentityConverter):
+            def convert_array(self, samples, options):
+                out, report = super().convert_array(samples, options)
+                if len(self.segments) == 3:
+                    out = out[:-FRAME * 5]
+                return out, report
+
+        stream = StreamingChunkedConverter(FailOnceConverter(), self.cfg)
+        audio = np.linspace(-0.5, 0.5, FRAME * 70, dtype=np.float32)
+        first = stream.push(audio[:FRAME * 30])
+        before_buffer = stream._buffer.copy()
+        before_fade = stream._pending_fade.copy()
+        before_time = stream.stats.process_seconds
+        with self.assertRaisesRegex(ValueError, "more than one 10 ms output frame"):
+            stream.push(audio[FRAME * 30:])
+        self.assertEqual(stream.stats.input_frames, 70)
+        self.assertEqual(stream.stats.chunks, 1)
+        self.assertEqual(stream.stats.emitted_frames, 20)
+        self.assertEqual(stream._next_frame, 20)
+        self.assertEqual(stream._buffer_start, 14)
+        self.assertEqual(len(stream.stats.latencies), 1)
+        self.assertEqual(stream.stats.process_seconds, before_time)
+        np.testing.assert_array_equal(stream._pending_fade, before_fade)
+        np.testing.assert_array_equal(
+            stream._buffer, np.concatenate((before_buffer, audio[FRAME * 30:])),
+        )
+        output = np.concatenate((first, stream.push(np.empty(0)), stream.flush()))
+        np.testing.assert_allclose(output, audio, atol=2e-7)
+        self.assertEqual(stream.stats.chunks, 4)
+        self.assertEqual(stream.stats.emitted_frames, 70)
+
+    def test_later_flush_failure_preserves_unreturned_audio(self) -> None:
+        class FailOnceConverter(IdentityConverter):
+            def convert_array(self, samples, options):
+                out, report = super().convert_array(samples, options)
+                if len(self.segments) == 2:
+                    out = out[:-FRAME * 5]
+                return out, report
+
+        stream = StreamingChunkedConverter(FailOnceConverter(), self.cfg)
+        audio = np.linspace(-0.5, 0.5, FRAME * 25 + 13, dtype=np.float32)
+        self.assertEqual(stream.push(audio).size, 0)
+        before_buffer = stream._buffer.copy()
+        with self.assertRaisesRegex(ValueError, "more than one 10 ms output frame"):
+            stream.flush()
+        self.assertEqual(stream.stats.chunks, 0)
+        self.assertEqual(stream.stats.emitted_frames, 0)
+        self.assertEqual(stream._next_frame, 0)
+        self.assertEqual(stream._buffer_start, 0)
+        self.assertEqual(stream.stats.latencies, [])
+        self.assertEqual(stream.stats.process_seconds, 0)
+        self.assertFalse(stream._closed)
+        self.assertEqual(stream._unframed.size, 13)
+        np.testing.assert_array_equal(stream._buffer, before_buffer)
+        np.testing.assert_allclose(stream.flush(), audio[:FRAME * 25], atol=2e-7)
+        self.assertEqual(stream.stats.chunks, 2)
+        self.assertEqual(stream.stats.emitted_frames, 25)
+        self.assertEqual(stream.flush().size, 0)
+
+    def test_backend_length_tolerance_at_output_sample_rate(self) -> None:
+        for sr in (16000, 48000):
+            spf = sr // 100
+            for frames in (1, 30):
+                for delta in (-spf - 1, -spf, 0, spf, spf + 1):
+                    with self.subTest(sr=sr, frames=frames, delta=delta):
+                        class SizedConverter:
+                            info = SimpleNamespace(sample_rate=sr)
+
+                            def convert_array(self, samples, options):
+                                n = samples.size // FRAME * spf + delta
+                                return np.ones(n, dtype=np.float32), None
+
+                        cfg = ChunkConfig(hop_seconds=1, context_seconds=0, crossfade_seconds=0)
+                        stream = StreamingChunkedConverter(SizedConverter(), cfg)
+                        stream.push(np.ones(FRAME * frames, dtype=np.float32))
+                        if abs(delta) > spf:
+                            with self.assertRaisesRegex(ValueError, "more than one 10 ms output frame"):
+                                stream.flush()
+                            self.assertEqual(stream.stats.chunks, 0)
+                            self.assertEqual(stream.stats.emitted_frames, 0)
+                        else:
+                            output = stream.flush()
+                            self.assertEqual(output.size, frames * spf)
+                            valid = min(output.size, max(frames, 10) * spf + delta)
+                            np.testing.assert_array_equal(output[:valid], 1)
+                            np.testing.assert_array_equal(output[valid:], 0)
+                            self.assertEqual(stream.stats.emitted_frames, frames)
+
     def test_empty_push_keeps_stream_open(self) -> None:
         stream = self.make_stream()
         self.assertEqual(stream.push(np.zeros(0, dtype=np.float32)).size, 0)

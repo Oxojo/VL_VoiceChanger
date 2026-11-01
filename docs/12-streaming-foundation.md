@@ -23,11 +23,20 @@ preserving all existing offline and VC Client commands.
   frame raise `ValueError` instead of silently filling large gaps with
   zeros. Validation happens before committing chunk statistics or samples.
   Small resampling/rounding differences (up to one frame) remain tolerated.
+- If a later inference in one `push()` or `flush()` fails, the adapter
+  restores its output position, retained context/fade and completed-chunk
+  statistics to before that call. Received input stays buffered. After
+  correcting the backend, retry with `push([])` or `flush()` respectively;
+  do not resend the same input. `reset()` discards it instead. Backend
+  internal state is not restored, so stateful backends may require reset.
 
 The existing RVC model still recomputes RMVPE, ContentVec and the synth
 for each overlapping window. Feature caching, cached causal convolutions,
 sound-device I/O, low-latency scheduling and StreamVC weights are **not
-implemented**. The ONNX feature extractors continue using CPU execution
+implemented in the adapter**. The Web UI now connects browser microphone
+capture and incremental playback through `/api/stream`; see
+[Web UI instructions](08-web-ui.md#マイクのストリーミング変換試験機能).
+The ONNX feature extractors continue using CPU execution
 providers by default, even if the RVC synthesizer uses CUDA.
 
 **Do not call `push()` from a real-time audio callback.** The method runs
@@ -102,8 +111,10 @@ this configuration is not suitable for interactive low-latency live use.
    / cache investigation. Merely decreasing `hop` often *increases*
    redundant inference overhead. A causal StreamVC backend should
    implement explicit encoder, F0 and decoder state.
-5. **Audio device and queues**: dedicated input/output callbacks,
-   worker, timestamped PCM blocks and underrun/overrun metrics.
+5. **Audio device and queues**: the Web UI now provides AudioWorklet capture,
+   a serial inference worker, bounded input/playback queues and playback
+   underrun counts. Native audio I/O, timestamped end-to-end latency and
+   low-latency model scheduling remain future work.
 6. **Verification**: test actual RTF p50/p95/max, algorithmic latency,
    microphone-to-speaker latency, quality and click-free boundaries.
 
