@@ -61,8 +61,16 @@ python -m engine stream-bench \
   -o logs/verify/stream-sim.wav \
   --input-frame-ms 20 \
   --hop 0.5 --context 0.15 --crossfade 0.05 \
-  --device cuda
+  --device cuda --ort-cuda
 ```
+
+To enable ONNX Runtime CUDA for ContentVec and RMVPE, install a
+matching `onnxruntime-gpu` build first and pass `--ort-cuda`. This is
+opt-in: plain `--device cuda` accelerates PyTorch synthesis but does not
+switch the ONNX extractors. The CLI validates that the ONNX sessions
+actually have CUDA first in their provider list, and errors otherwise.
+The same `--ort-cuda` option is available for `engine convert` and
+`engine bench` to allow fair comparisons.
 
 The CLI **simulates incremental arrival** from a recorded WAV as quickly
 as it can; it is not a live mic-to-speaker loop. The printed
@@ -97,7 +105,7 @@ this configuration is not suitable for interactive low-latency live use.
 ## Tests
 
 ```bash
-python -m unittest tests.test_streaming -v
+python -m unittest discover -s tests -p 'test_streaming.py' -v
 python -m unittest discover -s tests -v
 ```
 
