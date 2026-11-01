@@ -253,6 +253,61 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.wait_stopped()
         self.assertFalse(self.page.locator("#ortDevice").is_disabled())
 
+    def test_debug_mode_records_latency_and_exports_without_audio(self):
+        import json
+
+        self.page.locator("#liveDebug").check()
+        self.assertTrue(self.page.locator("#debugPanel").is_visible())
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertTrue(self.page.locator("#liveDebug").is_disabled())
+        self.assertIn("ピッチ推定", self.page.locator("#debugRows").inner_text())
+        self.assertIn("未測定", self.page.locator("#debugPanel").inner_text())
+        self.assertIn("hop 100", self.page.locator("#debugConfig").inner_text())
+        self.page.screenshot(path=str(Path(__file__).resolve().parents[1] / "logs" / "debug-mode.png"), full_page=True)
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        export = json.loads(Path(result.value.path()).read_text())
+        self.assertTrue(export["settings"]["debug"])
+        self.assertEqual(export["reason"], "停止しました")
+        self.assertGreater(len(export["records"]), 0)
+        self.assertLessEqual(len(export["records"]), 300)
+        self.assertGreater(export["records"][0]["graph_capture_to_schedule_ms"], 0)
+        self.assertEqual(export["records"][0]["output_start_frame"], 0)
+        self.assertAlmostEqual(export["records"][0]["accumulation_ms"], 120, places=3)
+        self.assertEqual(export["client_state"]["pending_audio_ms"], 0)
+        self.assertIsNone(export["client_state"]["inflight_elapsed_ms"])
+        self.assertNotIn("samples", export["records"][0])
+        self.page.locator("#liveDebug").uncheck()
+        self.assertFalse(self.page.locator("#debugPanel").is_visible())
+
+    def test_normal_mode_does_not_show_debug_panel(self):
+        self.assertFalse(self.page.locator("#liveDebug").is_checked())
+        self.start()
+        self.page.wait_for_function("window.testPlayback.length > 0")
+        self.assertFalse(self.page.locator("#debugPanel").is_visible())
+        self.assertTrue(self.page.locator("#debugExport").is_disabled())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+
+    def test_debug_exports_failure_before_first_audio_output(self):
+        import json
+
+        self.page.locator("#liveDebug").check()
+        self.start("slow")
+        self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('追いつかない')", timeout=15000)
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        export = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(export["records"], [])
+        self.assertIn("追いつかない", export["reason"])
+        self.assertGreater(export["client_state"]["pending_audio_ms"], 2000)
+        self.assertGreater(export["client_state"]["inflight_elapsed_ms"], 0)
+        self.assertIsNotNone(export["client_state"]["inflight_request_seq"])
+
 
 if __name__ == "__main__":
     unittest.main()

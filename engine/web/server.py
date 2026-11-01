@@ -641,7 +641,7 @@ def index() -> HTMLResponse:
     stamp = int(
         max(
             (STATIC_DIR / name).stat().st_mtime
-            for name in ("index.html", "app.js", "style.css", "live.js", "stream-audio.js", "stream-capture.js")
+            for name in ("index.html", "app.js", "style.css", "live.js", "stream-audio.js", "stream-capture.js", "stream-debug.js")
         )
     )
     html = html.replace("?v=__BUILD__", f"?v={stamp}")

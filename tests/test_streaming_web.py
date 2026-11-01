@@ -223,6 +223,77 @@ class TestStreamingWeb(unittest.TestCase):
                     _, ack = self.receive(ws)
                     self.assertEqual(ack["stage_ms"], {"f0": 2, "contentvec": 3, "synth": 4, "post": 1})
 
+    def test_debug_is_opt_in_and_preserves_audio_protocol(self):
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, hop=0.1, context=0, crossfade=0)
+            self.assertNotIn("debug", ready)
+            ws.send_bytes(np.ones(1600, dtype="<f4").tobytes())
+            output, ack = self.receive(ws)
+            np.testing.assert_array_equal(output, 1)
+            self.assertNotIn("debug", ack)
+
+    def test_debug_correlates_requests_output_frames_and_server_durations(self):
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, debug=True, hop=0.1, context=0, crossfade=0)
+            self.assertEqual(ready["debug"], {"hop_ms": 100, "context_ms": 0, "crossfade_ms": 0})
+            for i in range(1, 6):
+                ws.send_bytes(np.ones(320, dtype="<f4").tobytes())
+                output, ack = self.receive(ws)
+                d = ack["debug"]
+                self.assertEqual(d["request_seq"], i)
+                self.assertEqual(d["output_start_frame"], 0)
+                self.assertEqual(d["output_frames"], 10 if i == 5 else 0)
+                self.assertEqual(output.size, 4800 if i == 5 else 0)
+                self.assertGreaterEqual(d["server_ms"], d["worker_ms"])
+                self.assertGreaterEqual(d["worker_ms"], d["inference_ms"])
+                self.assertGreaterEqual(d["executor_wait_ms"], 0)
+            ws.send_json({"type": "stop"})
+            _, done = self.receive(ws)
+            self.assertEqual(done["debug"]["request_seq"], 6)
+            self.assertEqual(done["debug"]["output_start_frame"], 10)
+            self.assertEqual(done["debug"]["output_frames"], 0)
+
+    def test_debug_flush_keeps_short_tail_and_new_sessions_reset_sequence(self):
+        for _ in range(2):
+            with self.client.websocket_connect("/api/stream") as ws:
+                self.start(ws, debug=True)
+                ws.send_bytes(np.ones(160, dtype="<f4").tobytes())
+                _, ack = self.receive(ws)
+                self.assertEqual(ack["debug"]["request_seq"], 1)
+                ws.send_json({"type": "stop"})
+                out, done = self.receive(ws)
+                self.assertEqual(out.size, 480)
+                self.assertEqual(done["debug"]["request_seq"], 2)
+                self.assertEqual(done["debug"]["output_frames"], 1)
+
+    def test_debug_executor_wait_excludes_model_inference(self):
+        import time
+
+        release, queued = threading.Event(), threading.Event()
+        with self.client.websocket_connect("/api/stream") as ws:
+            self.start(ws, debug=True, hop=0.1, context=0, crossfade=0)
+            blocker = self.manager._executor.submit(release.wait, 3)
+            submit = self.manager._executor.submit
+
+            def notify_submit(*args, **kwargs):
+                future = submit(*args, **kwargs)
+                queued.set()
+                return future
+
+            try:
+                with patch.object(self.manager._executor, "submit", side_effect=notify_submit):
+                    ws.send_bytes(np.ones(1600, dtype="<f4").tobytes())
+                    self.assertTrue(queued.wait(2))
+                    time.sleep(0.025)
+                    release.set()
+                    _, ack = self.receive(ws)
+                    trace = ack["debug"]
+                    self.assertGreaterEqual(trace["executor_wait_ms"], 20)
+                    self.assertGreaterEqual(trace["server_ms"], trace["executor_wait_ms"] + trace["worker_ms"])
+            finally:
+                release.set()
+                blocker.result(timeout=3)
+
 
 if __name__ == "__main__":
     unittest.main()

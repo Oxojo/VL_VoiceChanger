@@ -126,6 +126,14 @@ ContentVec と RMVPE も CUDA 優先で動かす。既定の CPU 設定は従来
 公開サーバーでは HTTPS と WebSocket Upgrade の転送が必要。複数 worker ではセッションの排他が共有されないため、
 既存の運用どおり **1 worker** で起動する。認証は既存の公開サーバー側で管理する。
 
+### debug モード
+
+開始前に「debug モード：遅延の内訳を表示」をオンにすると、
+入力蓄積・送信待ち・サーバー処理・推論の内訳・往復時間・再生開始予定までを計測する。
+直近300出力の p50 / p95 / 最大値と、音声を含まない診断JSONを保存できる。
+通常モードは従来のバイナリ音声プロトコルを維持する。
+実測・推定・未計測の範囲は [14-streaming-debug.md](14-streaming-debug.md) を参照。
+
 ## 3. GPU での実測（2026-10-28 / RTX 3060 Laptop 6 GB）
 
 入力 7.63 秒（`logs/verify/tts-input-ja.wav`）、モデル `tsukuyomi-normal1`（40 kHz）。
@@ -214,7 +222,7 @@ curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
 
 1. JSON の開始設定を送る。例:
    `{"type":"start","model":"tsukuyomi/tsukuyomi-normal1","device":"auto","hop":0.5,"context":0.15,"crossfade":0.05}`。
-   `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr`, `ort_cuda`（既定 false）も指定できる。
+   `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr`, `ort_cuda`, `debug`（後二者は既定 false）も指定できる。
    `denoise` / `dehum` は 0 のみ。範囲外の設定や未定義フィールドは拒否される。
 2. サーバーから `{"type":"ready","input_sr":16000,"output_sr":40000,...}` が返る。
    `buffer_ms` は入力蓄積の下限で、実測遅延ではない。

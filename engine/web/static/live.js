@@ -1,8 +1,52 @@
 import { StreamPlayer } from "./stream-audio.js";
+import { StreamDebug } from "./stream-debug.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_PENDING_SAMPLES = 32000; // two seconds, including the in-flight packet
 let session = null;
+let lastDebug = null;
+
+function renderDebug(debug, force = false) {
+  const now = performance.now();
+  if (!force && now - (debug.renderedAt || 0) < 250) return;
+  debug.renderedAt = now;
+  const latest = debug.records.at(-1);
+  const packet = debug.lastPacket;
+  const ms = (value) => Number.isFinite(value) ? `${value.toFixed(1)} ms` : "未取得";
+  $("debugTotal").textContent = latest ? ms(latest.graph_capture_to_schedule_ms) : "出力待ち";
+  const summary = debug.summary();
+  const framing = debug.settings.framing;
+  $("debugConfig").textContent = framing
+    ? `設定値: hop ${framing.hop_ms} + context ${framing.context_ms} + crossfade ${framing.crossfade_ms} = ${framing.hop_ms + framing.context_ms + framing.crossfade_ms} ms（入力パケット20 msはこの蓄積に含む）`
+    : "サーバーの設定値を待っています。";
+  $("debugSummary").textContent = summary
+    ? `直近 ${summary.count} 出力（全 ${summary.total_outputs}）: p50 ${ms(summary.p50_ms)} / p95 ${ms(summary.p95_ms)} / 最大 ${ms(summary.max_ms)}`
+    : "推定値は音声出力ができてから表示します。";
+  $("debugLiveState").textContent = debug.clientState
+    ? `待ち音声量 ${ms(debug.clientState.pending_audio_ms)} / 応答待ち経過 ${ms(debug.clientState.inflight_elapsed_ms)}` : "";
+  const rows = [
+    ["入力蓄積", latest?.accumulation_ms, "出力先頭〜今回送信済み入力末尾（音声時間）"],
+    ["入力末尾 → 送信", latest?.capture_end_to_send_ms, "推定。パケット受け渡しと送信待ちを含む"],
+    ["ブラウザ内の送信待ち", latest?.input_queue_ms, "実測。同じ出力のパケット受け取り→送信。上段の内数"],
+    ["送信 → 音声応答", latest?.audio_response_ms, "実測。サーバー処理と通信を含む"],
+    ["サーバー内の合計", latest?.server_ms, "実測。受信→音声送信完了。次の処理時間を含む"],
+    ["サーバーの実行待ち", latest?.executor_wait_ms, "実測。ワーカーへの投入→実行開始"],
+    ["推論", latest?.inference_ms, "実測。下の4段階と一部前処理を含む"],
+    ["　ピッチ推定", latest?.stage_ms.f0, "推論の内数"],
+    ["　音声特徴抽出", latest?.stage_ms.contentvec, "推論の内数"],
+    ["　合成", latest?.stage_ms.synth, "推論の内数"],
+    ["　後処理", latest?.stage_ms.post, "推論の内数"],
+    ["ワーカー内の推論以外", latest ? Math.max(0, latest.worker_ms - latest.inference_ms) : null, "実測差分。フレーム処理・出力結合など"],
+    ["音声応答 → 再生開始予定", latest?.playback_schedule_ms, "音声グラフ上の待ち。再生待ちを含む"],
+    ["直近パケットのACK往復", packet?.rtt_ms, "実測。音声の総遅延とは別"],
+    ["ACK往復 − サーバー時間", packet?.transport_residual_ms, "参考。通信＋ブラウザ処理などの残差"],
+    ["出力経路 baseLatency", debug.deviceLatencies?.base_latency_ms, "ブラウザ申告値。総推定値に加算しない"],
+    ["出力デバイス outputLatency", debug.deviceLatencies?.output_latency_ms, "ブラウザ申告値。未対応の場合は未取得"],
+  ];
+  $("debugRows").innerHTML = rows.map(([label, value, note]) =>
+    `<tr><th>${label}</th><td>${ms(value)}</td><td>${note}</td></tr>`).join("");
+  $("debugExport").disabled = !(debug.lastPacket || debug.reason);
+}
 
 function show(message, error = false) {
   $("liveStatus").textContent = message;
@@ -17,7 +61,7 @@ function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
     "#modelSelect, #deviceSelect, #ortDevice, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
-    "#speaker, #seed, #hop, #context, #crossfade, #convertBtn, #recordBtn, input[name=mode]",
+    "#speaker, #seed, #hop, #context, #crossfade, #liveDebug, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
     if (active) { el.dataset.liveDisabled = String(el.disabled); el.disabled = true; }
@@ -40,6 +84,9 @@ class LiveSession {
     this.stopSent = false;
     this.closed = false;
     this.ready = false;
+    this.debug = $("liveDebug").checked ? new StreamDebug({}) : null;
+    this.requestSeq = 0;
+    this.captureOrigin = null;
   }
 
   async start() {
@@ -61,21 +108,26 @@ class LiveSession {
       this.timeout = setTimeout(() => reject(new Error("モデルの準備がタイムアウトしました")), 120000);
       this.ws.onopen = () => {
         if (this.closed) return;
-        this.ws.send(JSON.stringify({
+        const settings = {
           type: "start", model: $("modelSelect").value, device: $("deviceSelect").value,
           ort_cuda: $("ortDevice").value === "cuda",
+          debug: Boolean(this.debug),
           pitch: Number($("pitch").value), speaker: Number($("speaker").value),
           rms_mix: Number($("rmsMix").value), seed: Number($("seed").value || 1234),
           output_sr: Number($("outputSr").value), hop: Number($("hop").value),
           context: Number($("context").value), crossfade: Number($("crossfade").value),
           denoise: Number($("denoise").value), dehum: Number($("dehum").value),
-        }));
+        };
+        if (this.debug) this.debug.settings = settings;
+        this.ws.send(JSON.stringify(settings));
       };
       this.ws.onmessage = (event) => {
         try {
           if (event.data instanceof ArrayBuffer) {
             if (!this.player || event.data.byteLength % 4) throw new Error("音声応答が不正です");
-            this.player.enqueue(new Float32Array(event.data));
+            const receivedMs = this.debug ? performance.now() : 0;
+            const scheduled = this.player.enqueue(new Float32Array(event.data));
+            if (this.debug) this.debugOutput = { ...scheduled, receivedMs };
             return;
           }
           const message = JSON.parse(event.data);
@@ -84,6 +136,12 @@ class LiveSession {
             this.player = new StreamPlayer(this.context, message.output_sr);
             this.maxSamples = message.max_seconds * 16000;
             this.totalSamples = 0;
+            if (this.debug) {
+              if (!message.debug) throw new Error("サーバーが debug モードに対応していません");
+              this.debug.settings = { ...this.debug.settings, framing: message.debug, output_sr: message.output_sr };
+              this.debug.device(this.context);
+              renderDebug(this.debug, true);
+            }
             $("liveBuffer").textContent = `入力蓄積 ${message.buffer_ms} ms ＋ 推論・通信・再生時間`;
             $("liveProviders").textContent = Object.entries(message.feature_providers || {})
               .map(([name, providers]) => `${name}: ${providers[0] === "CUDAExecutionProvider" ? "CUDA 優先" : "CPU"}`)
@@ -91,11 +149,14 @@ class LiveSession {
             clearTimeout(this.timeout);
             resolve();
           } else if (message.type === "ack") {
+            this.recordDebug(message);
             this.pendingSamples -= this.inflight;
             this.inflight = 0;
             this.stats(message);
             this.pump();
+            this.updateDebugState();
           } else if (message.type === "done") {
+            this.recordDebug(message);
             this.done = true;
             this.stats(message);
             show("残りの音声を再生中…");
@@ -130,6 +191,7 @@ class LiveSession {
     this.capture = new AudioWorkletNode(this.context, "vlvc-stream-capture", {
       numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
       channelCount: 1, channelCountMode: "explicit",
+      processorOptions: { debug: Boolean(this.debug) },
     });
     this.capture.onprocessorerror = () => this.fail(new Error("マイクの音声処理に失敗しました"));
     this.capture.port.onmessage = (event) => {
@@ -143,8 +205,12 @@ class LiveSession {
           this.fail(new Error("変換が入力に追いつかないため停止しました。hop やデバイスを見直してください"));
           return;
         }
-        this.queue.push(samples);
+        if (this.debug) {
+          if (this.captureOrigin === null) this.captureOrigin = event.data.captureStart;
+          this.queue.push({ samples, captureEnd: event.data.captureEnd, receivedMs: performance.now() });
+        } else this.queue.push(samples);
         this.pump();
+        this.updateDebugState();
       } else if (event.data.type === "stopped") {
         this.captureStopped = true;
         this.capture.disconnect();
@@ -161,6 +227,35 @@ class LiveSession {
       }
     };
     show("変換中 — ヘッドホンでお試しください");
+  }
+
+  recordDebug(message) {
+    if (!this.debug) return;
+    this.debug.record({ packet: this.debugPacket, server: message.debug,
+      output: this.debugOutput, ackMs: performance.now(), captureOrigin: this.captureOrigin,
+      outputSr: this.player.sampleRate });
+    this.debugRequestPending = false;
+    this.debugOutput = null;
+    this.debug.device(this.context);
+    renderDebug(this.debug, message.type === "done");
+  }
+
+  markDebugSend(packet) {
+    if (!this.debug) return;
+    this.debugRequestPending = true;
+    this.debugPacket = { receivedMs: packet.receivedMs, captureEnd: packet.captureEnd, seq: ++this.requestSeq,
+      sentMs: performance.now(), sentGraphTime: this.context.currentTime };
+  }
+
+  updateDebugState() {
+    if (!this.debug) return;
+    this.debug.clientState = {
+      pending_audio_ms: this.pendingSamples / 16,
+      inflight_elapsed_ms: this.debugRequestPending ? performance.now() - this.debugPacket.sentMs : null,
+      inflight_request_seq: this.debugRequestPending ? this.debugPacket.seq : null,
+      state: this.closed ? "closed" : this.stopping ? "stopping" : "running",
+    };
+    renderDebug(this.debug);
   }
 
   stats(message) {
@@ -180,12 +275,16 @@ class LiveSession {
 
   pump() {
     if (this.closed || !this.ready || this.inflight || this.ws.readyState !== WebSocket.OPEN) return;
-    const samples = this.queue.shift();
-    if (samples) {
+    const packet = this.queue.shift();
+    if (packet) {
+      const samples = this.debug ? packet.samples : packet;
       this.inflight = samples.length;
+      this.markDebugSend(packet);
       this.ws.send(samples.buffer);
     } else if (this.stopping && this.captureStopped && !this.stopSent) {
       this.stopSent = true;
+      this.markDebugSend({ receivedMs: performance.now(),
+        captureEnd: this.captureOrigin + this.totalSamples / 16000 });
       this.ws.send(JSON.stringify({ type: "stop" }));
     }
   }
@@ -206,6 +305,11 @@ class LiveSession {
   dispose(message, error = false) {
     if (this.closed) return;
     this.closed = true;
+    if (this.debug) {
+      this.debug.reason = message;
+      this.updateDebugState();
+      renderDebug(this.debug, true);
+    }
     clearTimeout(this.timeout);
     clearTimeout(this.stopTimeout);
     clearTimeout(this.endTimer);
@@ -244,6 +348,9 @@ $("liveStartBtn").addEventListener("click", async () => {
   }
   const current = new LiveSession();
   session = current;
+  lastDebug = current.debug;
+  $("debugExport").disabled = true;
+  if (lastDebug) renderDebug(lastDebug, true);
   lockSettings(true);
   $("liveMetrics").textContent = "";
   $("liveQueue").textContent = "";
@@ -259,4 +366,15 @@ $("liveStopBtn").addEventListener("click", () => {
 $("modelSelect").addEventListener("change", updateAvailability);
 window.addEventListener("vlvc-models-ready", updateAvailability);
 window.addEventListener("pagehide", () => session?.dispose("停止しました"));
+$("liveDebug").addEventListener("change", () => $("debugPanel").classList.toggle("hidden", !$("liveDebug").checked));
+$("debugExport").addEventListener("click", () => {
+  if (!lastDebug || !(lastDebug.lastPacket || lastDebug.reason)) return;
+  const blob = new Blob([JSON.stringify(lastDebug.snapshot(), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "vlvc-stream-debug.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 updateAvailability();

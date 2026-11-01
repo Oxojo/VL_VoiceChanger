@@ -31,6 +31,17 @@
       <div id="liveProviders" class="hint"></div>
       <div id="liveStages" class="hint"></div>
       <div id="liveQueue" class="hint"></div>
+      <label class="row hint live-debug-toggle"><input id="liveDebug" type="checkbox"> debug モード：遅延の内訳を表示</label>
+      <div id="debugPanel" class="hidden">
+        <p><strong>入力 → 再生開始予定の推定遅延: <span id="debugTotal">出力待ち</span></strong></p>
+        <p class="hint">音声グラフ上の推定で、実マイクから耳までの遅延は未測定です。モデル準備・マイク許可待ちは含みません。行には内数や異なる時計の計測が含まれるため、すべてを足し合わせないでください。</p>
+        <p id="debugConfig" class="hint"></p>
+        <p id="debugSummary" class="hint">開始すると計測します。</p>
+        <p id="debugLiveState" class="hint"></p>
+        <div class="debug-table-wrap"><table class="metrics debug-table"><thead><tr><th>項目</th><th>時間</th><th>範囲・測定方法</th></tr></thead><tbody id="debugRows"></tbody></table></div>
+        <p class="hint">入力デバイス・OSの取り込み遅延は未取得。直近300出力を保持し、音声を含まない診断JSONを保存できます。</p>
+        <button id="debugExport" class="ghost" disabled>診断JSONを保存</button>
+      </div>
       <details class="hint live-options">
         <summary>区間の設定・使い方</summary>
         <p>変換モードを「分割」にすると hop / context / crossfade を調整できます。マイク変換はモードの選択にかかわらずストリーミングで処理します。</p>

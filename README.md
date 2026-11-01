@@ -82,6 +82,9 @@ python -m vlvc serve
 「特徴抽出の高速化 → GPU / CUDA（試験）」で、合成に加えてピッチ推定・音声特徴抽出も
 GPU 化できる。対応する ONNX Runtime GPU が必要。
 [導入・比較手順](docs/13-web-onnx-cuda.md)。
+遅延を調べるときは開始前に **debug モード**をオンにする。
+入力蓄積・送信待ち・推論・往復時間・再生待ちと、入力から再生開始予定までの推定値を確認できる。
+[計測範囲とJSON保存](docs/14-streaming-debug.md)。
 
 開発時は **Node.js 18+ / Python 3.10+** があれば、リポジトリのルートで次だけでも起動できる。
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from functools import partial
 from urllib.parse import urlsplit
 
@@ -29,6 +30,7 @@ class StreamRequest(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     device: str = "auto"
     ort_cuda: bool = False
+    debug: bool = False
     pitch: int = Field(default=0, ge=-24, le=24)
     speaker: int = Field(default=0, ge=0, le=255)
     rms_mix: float = Field(default=0.25, ge=0, le=1)
@@ -80,19 +82,34 @@ def register_stream_routes(app, manager) -> None:
         reserved = False
         loop = asyncio.get_running_loop()
 
-        async def work(func, *args):
-            return await loop.run_in_executor(manager._executor, partial(func, *args))
+        async def work(func, *args, trace=None):
+            if trace is None:
+                return await loop.run_in_executor(manager._executor, partial(func, *args))
+            submitted = time.perf_counter()
 
-        async def status(stream, kind):
+            def measured():
+                started = time.perf_counter()
+                trace["executor_wait_ms"] = (started - submitted) * 1000
+                try:
+                    return func(*args)
+                finally:
+                    trace["worker_ms"] = (time.perf_counter() - started) * 1000
+
+            return await loop.run_in_executor(manager._executor, measured)
+
+        async def status(stream, kind, debug=None):
             s = stream.stats
-            await ws.send_json({
+            payload = {
                 "type": kind, "input_frames": s.input_frames,
                 "emitted_frames": s.emitted_frames, "chunks": s.chunks,
                 "rtf": s.rtf if s.input_frames else None,
                 "max_inference_ms": s.max_inference_ms,
                 "stage_ms": {name: seconds * 1000 / s.chunks
                              for name, seconds in s.stage_seconds.items()} if s.chunks else {},
-            })
+            }
+            if debug is not None:
+                payload["debug"] = debug
+            await ws.send_json(payload)
 
         try:
             raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
@@ -102,16 +119,54 @@ def register_stream_routes(app, manager) -> None:
             manager.reserve_stream()
             reserved = True
             stream = await work(req.build, manager)
-            await ws.send_json({
+            ready = {
                 "type": "ready", "input_sr": 16000, "output_sr": stream.output_sr,
                 "packet_samples": 320, "max_packet_samples": MAX_PACKET_SAMPLES,
                 "max_seconds": MAX_STREAM_FRAMES / 100,
                 "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
                 "feature_providers": feature_providers(stream.converter),
-            })
+            }
+            if req.debug:
+                ready["debug"] = {
+                    "hop_ms": stream.hop_frames * 10,
+                    "context_ms": stream.context_frames * 10,
+                    "crossfade_ms": stream.fade_frames * 10,
+                }
+            await ws.send_json(ready)
             received_samples = 0
+            request_seq = 0
+
+            async def convert(func, samples=None):
+                nonlocal request_seq
+                request_seq += 1
+                if not req.debug:
+                    out = await work(func, samples) if samples is not None else await work(func)
+                    if out.size:
+                        await ws.send_bytes(out.astype("<f4", copy=False).tobytes())
+                    return None
+                trace = {}
+                first_frame = stream.stats.emitted_frames
+                inference_before = stream.stats.process_seconds
+                stages_before = stream.stats.stage_seconds.copy()
+                out = (await work(func, samples, trace=trace) if samples is not None
+                       else await work(func, trace=trace))
+                if out.size:
+                    await ws.send_bytes(out.astype("<f4", copy=False).tobytes())
+                trace.update({
+                    "request_seq": request_seq,
+                    "server_ms": (time.perf_counter() - received_at) * 1000,
+                    "inference_ms": (stream.stats.process_seconds - inference_before) * 1000,
+                    "output_start_frame": first_frame,
+                    "output_frames": stream.stats.emitted_frames - first_frame,
+                    "stage_ms": {name: (seconds - stages_before.get(name, 0)) * 1000
+                                 for name, seconds in stream.stats.stage_seconds.items()
+                                 if seconds != stages_before.get(name, 0)},
+                })
+                return trace
+
             while True:
                 message = await asyncio.wait_for(ws.receive(), timeout=IDLE_SECONDS)
+                received_at = time.perf_counter() if req.debug else None
                 if message["type"] == "websocket.disconnect":
                     break
                 if message.get("bytes") is not None:
@@ -124,19 +179,15 @@ def register_stream_routes(app, manager) -> None:
                     received_samples += samples.size
                     if received_samples > MAX_STREAM_FRAMES * 160:
                         raise ValueError("試験セッションは 180 秒までです。停止して再開してください")
-                    out = await work(stream.push, samples)
-                    if out.size:
-                        await ws.send_bytes(out.astype("<f4", copy=False).tobytes())
+                    debug = await convert(stream.push, samples)
                     # Exactly one ack per input packet, even before first output.
                     # Clients wait for this before sending the next packet.
-                    await status(stream, "ack")
+                    await status(stream, "ack", debug)
                 elif message.get("text") is not None:
                     if len(message["text"]) > 128 or json.loads(message["text"]) != {"type": "stop"}:
                         raise ValueError("停止メッセージは {\"type\":\"stop\"} です")
-                    out = await work(stream.flush)
-                    if out.size:
-                        await ws.send_bytes(out.astype("<f4", copy=False).tobytes())
-                    await status(stream, "done")
+                    debug = await convert(stream.flush)
+                    await status(stream, "done", debug)
                     await ws.close(code=1000)
                     break
                 else:
