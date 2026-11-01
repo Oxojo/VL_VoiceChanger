@@ -3,6 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   wavBlob: null,
+  uploadName: "input.wav",
+  inputUrl: null,
   name: "",
   buffer: null,
   original: null,
@@ -49,30 +51,34 @@ function clock(seconds) {
 }
 
 // ------------------------------------------------------------------ 波形
-function encodeWav(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
+function encodeWav(samples, sampleRate, channels = [samples]) {
+  const channelCount = channels.length;
+  const dataBytes = samples.length * channelCount * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
   const view = new DataView(buffer);
   const writeString = (offset, text) => {
     for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
   };
   writeString(0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
+  view.setUint32(4, 36 + dataBytes, true);
   writeString(8, "WAVE");
   writeString(12, "fmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
+  view.setUint16(22, channelCount, true);
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
+  view.setUint32(28, sampleRate * channelCount * 2, true);
+  view.setUint16(32, channelCount * 2, true);
   view.setUint16(34, 16, true);
   writeString(36, "data");
-  view.setUint32(40, samples.length * 2, true);
+  view.setUint32(40, dataBytes, true);
   let offset = 44;
   for (let i = 0; i < samples.length; i += 1) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    offset += 2;
+    for (const channel of channels) {
+      const s = Math.max(-1, Math.min(1, channel[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
+    }
   }
   return new Blob([view], { type: "audio/wav" });
 }
@@ -123,58 +129,71 @@ async function decodeToWav(file) {
     await ctx.close();
   }
 
-  const sr = 16000;
-  const length = Math.max(1, Math.ceil(decoded.duration * sr));
-  const offline = new OfflineAudioContext(1, length, sr);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
-  const rendered = await offline.startRendering();
-  const samples = rendered.getChannelData(0);
-  return { blob: encodeWav(samples, sr), samples, duration: decoded.duration };
+  // 対応形式は再エンコードしない。波形表示用のデコード結果は試聴・送信に使わない。
+  // 16 kHz 化とモノラル化は、サーバーのエンジン内部でのみ行う。
+  const samples = decoded.getChannelData(0);
+  const suffix = /\.(wav|flac|ogg|mp3)$/i.exec(file.name || "")?.[1].toLowerCase();
+  const mimeSuffix = {
+    "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav",
+    "audio/flac": "flac", "audio/ogg": "ogg", "audio/mpeg": "mp3",
+  }[file.type];
+  const format = suffix || mimeSuffix;
+  if (format) {
+    return {
+      blob: file, samples, duration: decoded.duration,
+      uploadName: `input.${format}`, description: "元ファイルをそのまま試聴・送信（加工なし）",
+    };
+  }
+
+  // M4A などサーバーで読めない形式のみ、ブラウザのデコード周波数の WAV にする。
+  return {
+    blob: encodeWavBuffer(decoded), samples, duration: decoded.duration,
+    uploadName: "input.wav", description: `${decoded.sampleRate} Hz WAV に変換（16 kHz 化なし）`,
+  };
 }
 
-function renderInput(blob, samples, name, info) {
+function encodeWavBuffer(decoded) {
+  // 録音はモノラル。複数チャネルの場合もここでは勝手にダウンミックスしない。
+  const channels = Array.from({ length: decoded.numberOfChannels }, (_, i) => decoded.getChannelData(i));
+  return encodeWav(channels[0], decoded.sampleRate, channels);
+}
+
+function renderInput(blob, samples, name, info, uploadName = "input.wav") {
   state.buffer = samples;
   state.wavBlob = blob;
   state.name = name;
+  state.uploadName = uploadName;
 
   $("inputInfo").textContent = info;
   drawWave($("inputWave"), samples);
   const player = $("inputAudio");
-  player.src = URL.createObjectURL(blob);
+  player.pause();
+  if (state.inputUrl) URL.revokeObjectURL(state.inputUrl);
+  state.inputUrl = URL.createObjectURL(blob);
+  player.src = state.inputUrl;
   player.classList.remove("hidden");
   $("convertBtn").disabled = false;
   $("cleanBtn").disabled = false;
   $("convertHint").textContent = "変換できます";
 }
 
-function adoptInput(blob, samples, name, info) {
+function adoptInput(blob, samples, name, info, uploadName = "input.wav") {
   // 新しく音声を読み込んだときは、元に戻せるように控えておく
-  state.original = { blob, samples, name };
+  state.original = { blob, samples, name, uploadName };
   state.cleaned = false;
   $("revertBtn").classList.add("hidden");
   $("cleanInfo").textContent = "録音・読み込みのあと、この音声だけに除去をかけられます（任意）";
-  renderInput(blob, samples, name, info);
+  renderInput(blob, samples, name, info, uploadName);
 }
 
 async function setInputFromBuffer(decoded, name) {
-  const sr = 16000;
-  const length = Math.max(1, Math.ceil(decoded.duration * sr));
-  const offline = new OfflineAudioContext(1, length, sr);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
-  const rendered = await offline.startRendering();
-  const samples = rendered.getChannelData(0);
+  const samples = decoded.getChannelData(0);
 
   adoptInput(
-    encodeWav(samples, sr),
+    encodeWavBuffer(decoded),
     samples,
     name,
-    `${name} ／ ${decoded.duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`,
+    `${name} ／ ${decoded.duration.toFixed(2)} 秒 ／ ${decoded.sampleRate} Hz WAV（内部解析のみ 16 kHz）`,
   );
 }
 
@@ -185,8 +204,8 @@ async function setInputFromFile(file) {
     return;
   }
   try {
-    const { blob, samples, duration } = await decodeToWav(file);
-    adoptInput(blob, samples, file.name, `${file.name} ／ ${duration.toFixed(2)} 秒 ／ 16 kHz モノラルに変換`);
+    const { blob, samples, duration, uploadName, description } = await decodeToWav(file);
+    adoptInput(blob, samples, file.name, `${file.name} ／ ${duration.toFixed(2)} 秒 ／ ${description}`, uploadName);
   } catch (err) {
     toast(`音声を読めませんでした: ${err.message}`);
   }
@@ -206,7 +225,7 @@ async function applyDenoiseToInput() {
   $("cleanInfo").textContent = "ノイズ除去中…";
   try {
     const form = new FormData();
-    form.append("audio", state.wavBlob, "input.wav");
+    form.append("audio", state.wavBlob, state.uploadName);
     form.append("strength", String(strength));
     form.append("dehum", String(dehum));
 
@@ -249,6 +268,7 @@ function revertInput() {
     state.original.samples,
     state.original.name,
     `${state.original.name} ／ 元の音声に戻しました`,
+    state.original.uploadName,
   );
   state.cleaned = false;
   $("revertBtn").classList.add("hidden");
@@ -317,7 +337,7 @@ async function startRecording() {
 // ------------------------------------------------------------------ 変換
 function collectForm() {
   const form = new FormData();
-  form.append("audio", state.wavBlob, "input.wav");
+  form.append("audio", state.wavBlob, state.uploadName);
   form.append("model", $("modelSelect").value);
   form.append("device", $("deviceSelect").value);
   form.append("pitch", $("pitch").value);
