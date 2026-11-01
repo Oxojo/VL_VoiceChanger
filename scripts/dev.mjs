@@ -51,7 +51,7 @@ function findPython() {
   const candidates = process.env.VLVC_PYTHON
     ? [{ command: process.env.VLVC_PYTHON, prefix: [] }]
     : [
-      ...[local, active].filter((p) => p && existsSync(p)).map((command) => ({ command, prefix: [] })),
+      ...[active, local].filter((p) => p && existsSync(p)).map((command) => ({ command, prefix: [] })),
       { command: "python3", prefix: [] }, { command: "python", prefix: [] },
       ...(process.platform === "win32" ? [{ command: "py", prefix: ["-3"] }] : []),
     ];

@@ -16,6 +16,7 @@ import unittest
 from urllib.request import urlopen
 
 import websockets
+import psutil
 
 
 class TestDevLauncher(unittest.TestCase):
@@ -28,9 +29,11 @@ class TestDevLauncher(unittest.TestCase):
         base = f"http://127.0.0.1:{port}"
         command = ([shutil.which("npm"), "run", "dev", "--"] if os.name != "nt" and shutil.which("npm")
                    else [shutil.which("node"), "scripts/dev.mjs"])
+        launch_env = {**os.environ, "VIRTUAL_ENV": sys.prefix}
+        launch_env.pop("VLVC_PYTHON", None)
         process = subprocess.Popen(
             [*command, "--port", str(port), "--no-open"],
-            cwd=root, env={**os.environ, "VLVC_PYTHON": sys.executable},
+            cwd=root, env=launch_env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             start_new_session=os.name != "nt",
         )
@@ -51,6 +54,10 @@ class TestDevLauncher(unittest.TestCase):
                 self.assertEqual(response.status, 200)
             with urlopen(base + "/api/models") as response:
                 self.assertIn("models", json.load(response))
+            self.assertTrue(any(
+                child.cmdline() and Path(child.cmdline()[0]).parent == Path(sys.executable).parent
+                for child in psutil.Process(process.pid).children(recursive=True)
+            ), "the activated environment must take priority over a repository .venv")
 
             async def ws_request():
                 async with websockets.connect(f"ws://127.0.0.1:{port}/api/stream", origin=base) as ws:
