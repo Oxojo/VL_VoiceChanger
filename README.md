@@ -80,6 +80,21 @@ python -m vlvc serve
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
 
+### 逐次入力の試作（非因果 RVC、ライブ I/O は未実装）
+
+音声を 20 ms ごとに入力し、利用可能な出力を順次確定する
+`StreamingChunkedConverter` と `stream-bench` コマンドを追加。
+**重複する ContentVec / RMVPE / 合成処理をキャッシュするものではなく、
+現状でリアルタイム動作を保証しません**。マイク・スピーカー接続も未実装です。
+
+```bash
+python -m engine stream-bench -m models/tsukuyomi/tsukuyomi-normal1.pth \
+    -i logs/verify/tts-input-ja.wav --device cuda --input-frame-ms 20
+```
+
+使い方・必要な先読み・制約と今後の性能改善計画:
+[docs/12-streaming-foundation.md](docs/12-streaming-foundation.md)。
+
 ### NeoShowcase への公開（2 種類）
 
 | 公開するもの | 設定 | 手順 |
