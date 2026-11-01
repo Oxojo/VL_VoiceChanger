@@ -28,6 +28,7 @@ class StreamStats:
     chunks: int = 0
     process_seconds: float = 0.0
     latencies: list[float] = field(default_factory=list)
+    stage_seconds: dict[str, float] = field(default_factory=dict)
 
     @property
     def input_seconds(self) -> float:
@@ -136,6 +137,7 @@ class StreamingChunkedConverter:
             self._buffer, self._buffer_start, self._next_frame, self._pending_fade,
             self.stats.chunks, self.stats.emitted_frames, self.stats.process_seconds,
             len(self.stats.latencies),
+            self.stats.stage_seconds.copy(),
         )
         output = []
         required_future = self.context_frames + self.fade_frames
@@ -151,6 +153,7 @@ class StreamingChunkedConverter:
                 self._buffer, self._buffer_start, self._next_frame, self._pending_fade,
                 self.stats.chunks, self.stats.emitted_frames, self.stats.process_seconds,
                 latency_count,
+                self.stats.stage_seconds,
             ) = checkpoint
             del self.stats.latencies[latency_count:]
             raise
@@ -169,7 +172,7 @@ class StreamingChunkedConverter:
             segment = np.pad(segment, (0, int(0.1 * SAMPLE_RATE) - segment.size))
 
         t0 = time.perf_counter()
-        out, _ = self.converter.convert_array(segment, self.options)
+        out, report = self.converter.convert_array(segment, self.options)
         dt = time.perf_counter() - t0
 
         # The backend sees the *padded* input, which may be longer than the
@@ -193,6 +196,10 @@ class StreamingChunkedConverter:
         self.stats.chunks += 1
         self.stats.latencies.append(dt)
         self.stats.process_seconds += dt
+        timings = getattr(report, "timings", {})
+        for stage in ("f0", "contentvec", "synth", "post"):
+            if stage in timings:
+                self.stats.stage_seconds[stage] = self.stats.stage_seconds.get(stage, 0.0) + timings[stage]
 
         skip = (start - left) * self.samples_per_frame
         take = (min(end + self.fade_frames, self._total_frames) - start) * self.samples_per_frame

@@ -33,21 +33,26 @@ def serve_fixture(port):
     class Converter:
         info = SimpleNamespace(sample_rate=48000)
 
-        def __init__(self, model):
+        def __init__(self, model, ort_cuda=False):
             self.model = model
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if ort_cuda else ["CPUExecutionProvider"]
+            session = SimpleNamespace(get_providers=lambda: providers)
+            self.contentvec = self.rmvpe = SimpleNamespace(session=session)
 
         def convert_array(self, samples, options):
             if self.model == "slow":
                 time.sleep(3)
             if self.model == "broken":
                 raise ValueError("test backend output failed")
-            return np.repeat(samples * 0.5, 3), None
+            return np.repeat(samples * 0.5, 3), SimpleNamespace(timings={
+                "f0": 0.002, "contentvec": 0.003, "synth": 0.004, "post": 0.001,
+            })
 
     server.list_models = lambda: [
         {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken"]
     ]
     server.manager.model_info = lambda model: {"sample_rate": 48000, "speakers": 1}
-    server.manager._converter = lambda model, device, job: Converter(model)
+    server.manager._converter = lambda model, device, job, *, ort_cuda=False: Converter(model, ort_cuda)
 
     @server.app.get("/test/idle")
     async def idle():
@@ -235,6 +240,18 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.page.wait_for_function("window.testTracks.every(t => t.readyState === 'ended')")
         self.wait_stopped()
         self.assertEqual(self.page.evaluate("window.testPlayback.length"), 0)
+
+    def test_feature_cuda_setting_and_profile_display(self):
+        self.page.locator("#ortDevice").select_option("cuda")
+        self.start()
+        self.page.wait_for_function("window.testPlayback.length > 0")
+        self.assertIn("CUDA 優先", self.page.locator("#liveProviders").inner_text())
+        self.assertIn("ピッチ推定 2.0 ms", self.page.locator("#liveStages").inner_text())
+        self.assertIn("音声特徴 3.0 ms", self.page.locator("#liveStages").inner_text())
+        self.assertTrue(self.page.locator("#ortDevice").is_disabled())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        self.assertFalse(self.page.locator("#ortDevice").is_disabled())
 
 
 if __name__ == "__main__":

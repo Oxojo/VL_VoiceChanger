@@ -22,6 +22,8 @@ class FakeConverter:
 
     def __init__(self):
         self.calls = []
+        session = SimpleNamespace(get_providers=lambda: ["CPUExecutionProvider"])
+        self.contentvec = self.rmvpe = SimpleNamespace(session=session)
 
     def convert_array(self, samples, options):
         self.calls.append((samples.copy(), options, threading.current_thread().name))
@@ -201,6 +203,25 @@ class TestStreamingWeb(unittest.TestCase):
                     release.set()
                 _, ack = self.receive(ws)
                 self.assertEqual(ack["type"], "ack")
+
+    def test_cuda_selection_and_stage_timings_reach_browser(self):
+        session = SimpleNamespace(get_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"])
+        self.fake.contentvec = self.fake.rmvpe = SimpleNamespace(session=session)
+        original = self.fake.convert_array
+
+        def profiled(*args):
+            out, _ = original(*args)
+            return out, SimpleNamespace(timings={"f0": 0.002, "contentvec": 0.003, "synth": 0.004, "post": 0.001})
+
+        with patch.object(self.fake, "convert_array", side_effect=profiled):
+            with self.client.websocket_connect("/api/stream") as ws:
+                ready = self.start(ws, ort_cuda=True, hop=0.1, context=0, crossfade=0)
+                self.assertTrue(self.manager._converter.call_args.kwargs["ort_cuda"])
+                self.assertEqual(ready["feature_providers"]["contentvec"][0], "CUDAExecutionProvider")
+                for _ in range(2):
+                    ws.send_bytes(np.zeros(1600, dtype="<f4").tobytes())
+                    _, ack = self.receive(ws)
+                    self.assertEqual(ack["stage_ms"], {"f0": 2, "contentvec": 3, "synth": 4, "post": 1})
 
 
 if __name__ == "__main__":

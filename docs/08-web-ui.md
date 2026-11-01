@@ -118,7 +118,10 @@ CPU などで処理が遅いと送信待ちが 2 秒を超えて停止する。h
 切断時点で推論中だった 1 区間が終わるまで、サーバーが次の接続を待たせる場合がある。
 タブをバックグラウンドにするとブラウザが音声処理を中断する場合があるため、画面を開いたまま使う。
 このモードは入力や出力を履歴・WAV に保存しない。従来の録音・ファイル変換はそのまま利用できる。
-CUDA の選択は合成器に適用され、ONNX 特徴抽出は現在 CPU のまま。
+「デバイス」の CUDA は合成器に適用される。「特徴抽出の高速化」を **GPU / CUDA（試験）** にすると、
+ContentVec と RMVPE も CUDA 優先で動かす。既定の CPU 設定は従来と同じ。
+開始後に実セッションのプロバイダーと、ピッチ推定・音声特徴・合成・後処理の区間あたり平均時間を表示する。
+導入と比較方法は [13-web-onnx-cuda.md](13-web-onnx-cuda.md) を参照。
 
 公開サーバーでは HTTPS と WebSocket Upgrade の転送が必要。複数 worker ではセッションの排他が共有されないため、
 既存の運用どおり **1 worker** で起動する。認証は既存の公開サーバー側で管理する。
@@ -211,15 +214,17 @@ curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
 
 1. JSON の開始設定を送る。例:
    `{"type":"start","model":"tsukuyomi/tsukuyomi-normal1","device":"auto","hop":0.5,"context":0.15,"crossfade":0.05}`。
-   `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr` も指定できる。
+   `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr`, `ort_cuda`（既定 false）も指定できる。
    `denoise` / `dehum` は 0 のみ。範囲外の設定や未定義フィールドは拒否される。
 2. サーバーから `{"type":"ready","input_sr":16000,"output_sr":40000,...}` が返る。
    `buffer_ms` は入力蓄積の下限で、実測遅延ではない。
+   `feature_providers` は ContentVec / RMVPE の実セッションのプロバイダー一覧。
 3. **16 kHz mono / little-endian float32** をバイナリで送る。推奨 320 サンプル（20 ms）、
    最大 1600 サンプル（100 ms）。WAV ヘッダーは付けない。
    1 パケットごとに `ack` が返るまで次を送らない。
 4. 出力ができた場合、`ack` の前に **ready の output_sr / mono / little-endian float32**
    のバイナリが返る。`ack` は入力がまだ蓄積中でも必ず返り、フレーム数と推論統計を含む。
+   `stage_ms` は完了した全区間の段階別平均時間（ms）。計測を返さない backend では空。
 5. `{"type":"stop"}` を送ると残りを flush し、バイナリ音声（あれば）、`done`、正常切断の順に返る。
    入力末尾の 10 ms 未満の端数だけを捨てる。切断後の再接続は新しい状態から始まる。
 

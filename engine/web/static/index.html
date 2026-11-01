@@ -28,6 +28,8 @@
       <p id="liveStatus" role="status" aria-live="polite">モデルを選んで開始してください</p>
       <div id="liveBuffer" class="hint">既定設定では 700 ms の入力蓄積に加え、推論・通信・再生に時間がかかります。</div>
       <div id="liveMetrics" class="hint"></div>
+      <div id="liveProviders" class="hint"></div>
+      <div id="liveStages" class="hint"></div>
       <div id="liveQueue" class="hint"></div>
       <details class="hint live-options">
         <summary>区間の設定・使い方</summary>
@@ -80,6 +82,13 @@
             <option value="24000">24 kHz</option>
             <option value="16000">16 kHz</option>
           </select>
+        </label>
+        <label class="field wide">特徴抽出の高速化
+          <select id="ortDevice">
+            <option value="cpu">CPU（従来どおり）</option>
+            <option value="cuda">GPU / CUDA（試験）</option>
+          </select>
+          <span id="ortHint" class="hint">ピッチ推定・音声特徴抽出も GPU で処理します。対応する onnxruntime-gpu が必要です。</span>
         </label>
         <label class="field wide">ピッチ（半音）
           <span class="range-row">

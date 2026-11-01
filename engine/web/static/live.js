@@ -16,7 +16,7 @@ function updateAvailability() {
 function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
-    "#modelSelect, #deviceSelect, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
+    "#modelSelect, #deviceSelect, #ortDevice, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
     "#speaker, #seed, #hop, #context, #crossfade, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
@@ -63,6 +63,7 @@ class LiveSession {
         if (this.closed) return;
         this.ws.send(JSON.stringify({
           type: "start", model: $("modelSelect").value, device: $("deviceSelect").value,
+          ort_cuda: $("ortDevice").value === "cuda",
           pitch: Number($("pitch").value), speaker: Number($("speaker").value),
           rms_mix: Number($("rmsMix").value), seed: Number($("seed").value || 1234),
           output_sr: Number($("outputSr").value), hop: Number($("hop").value),
@@ -84,6 +85,9 @@ class LiveSession {
             this.maxSamples = message.max_seconds * 16000;
             this.totalSamples = 0;
             $("liveBuffer").textContent = `入力蓄積 ${message.buffer_ms} ms ＋ 推論・通信・再生時間`;
+            $("liveProviders").textContent = Object.entries(message.feature_providers || {})
+              .map(([name, providers]) => `${name}: ${providers[0] === "CUDAExecutionProvider" ? "CUDA 優先" : "CPU"}`)
+              .join(" / ");
             clearTimeout(this.timeout);
             resolve();
           } else if (message.type === "ack") {
@@ -160,6 +164,11 @@ class LiveSession {
   }
 
   stats(message) {
+    const names = { f0: "ピッチ推定", contentvec: "音声特徴", synth: "合成", post: "後処理" };
+    $("liveStages").textContent = Object.entries(message.stage_ms || {}).length
+      ? "区間あたり平均: " + Object.entries(message.stage_ms)
+        .map(([name, ms]) => `${names[name] || name} ${ms.toFixed(1)} ms`).join(" / ")
+      : "";
     $("liveMetrics").textContent =
       `入力 ${(message.input_frames / 100).toFixed(2)} 秒 / 出力 ${(message.emitted_frames / 100).toFixed(2)} 秒` +
       ` / 推論 RTF ${message.rtf === null ? "—" : message.rtf.toFixed(2)}` +
@@ -238,6 +247,8 @@ $("liveStartBtn").addEventListener("click", async () => {
   lockSettings(true);
   $("liveMetrics").textContent = "";
   $("liveQueue").textContent = "";
+  $("liveProviders").textContent = "";
+  $("liveStages").textContent = "";
   show("接続・モデル準備中…");
   try { await current.start(); } catch (err) { current.fail(err); }
 });

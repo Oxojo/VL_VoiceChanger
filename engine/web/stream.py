@@ -13,6 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..convert import ConvertOptions
+from ..features.providers import feature_providers
 from ..realtime import ChunkConfig
 from ..streaming import StreamingChunkedConverter
 
@@ -27,6 +28,7 @@ class StreamRequest(BaseModel):
     type: str = "start"
     model: str = Field(min_length=1, max_length=200)
     device: str = "auto"
+    ort_cuda: bool = False
     pitch: int = Field(default=0, ge=-24, le=24)
     speaker: int = Field(default=0, ge=0, le=255)
     rms_mix: float = Field(default=0.25, ge=0, le=1)
@@ -56,7 +58,7 @@ class StreamRequest(BaseModel):
             raise ValueError("ストリーミングではノイズ除去とハム除去を 0 にしてください")
         if self.output_sr and self.output_sr % 100:
             raise ValueError("出力サンプリングレートは 100 の倍数にしてください")
-        conv = manager._converter(self.model, device, Job(id="stream", request={}))
+        conv = manager._converter(self.model, device, Job(id="stream", request={}), ort_cuda=self.ort_cuda)
         return StreamingChunkedConverter(
             conv,
             ChunkConfig(self.hop, self.context, self.crossfade, None if self.seed < 0 else self.seed),
@@ -88,6 +90,8 @@ def register_stream_routes(app, manager) -> None:
                 "emitted_frames": s.emitted_frames, "chunks": s.chunks,
                 "rtf": s.rtf if s.input_frames else None,
                 "max_inference_ms": s.max_inference_ms,
+                "stage_ms": {name: seconds * 1000 / s.chunks
+                             for name, seconds in s.stage_seconds.items()} if s.chunks else {},
             })
 
         try:
@@ -103,6 +107,7 @@ def register_stream_routes(app, manager) -> None:
                 "packet_samples": 320, "max_packet_samples": MAX_PACKET_SAMPLES,
                 "max_seconds": MAX_STREAM_FRAMES / 100,
                 "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
+                "feature_providers": feature_providers(stream.converter),
             })
             received_samples = 0
             while True:
