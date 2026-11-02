@@ -32,6 +32,7 @@ class StreamRequest(BaseModel):
     ort_cuda: bool = False
     debug: bool = False
     warmup: bool = True
+    feature_cache: bool = False
     pitch: int = Field(default=0, ge=-24, le=24)
     speaker: int = Field(default=0, ge=0, le=255)
     rms_mix: float = Field(default=0.25, ge=0, le=1)
@@ -69,6 +70,7 @@ class StreamRequest(BaseModel):
                 pitch_shift=self.pitch, speaker=self.speaker, rms_mix=self.rms_mix,
                 seed=None if self.seed < 0 else self.seed, output_sr=self.output_sr or None,
             ),
+            feature_cache=self.feature_cache,
         )
         stream.warmup_seconds = 0.0
         if self.warmup:
@@ -87,6 +89,12 @@ class StreamRequest(BaseModel):
                     conv, ChunkConfig(frames / 100, 0, 0), stream.options,
                 )
                 probe.push(np.zeros(frames * 160, dtype=np.float32))
+            if self.feature_cache:
+                try:
+                    frames = stream.hop_frames * 3 + stream.context_frames + stream.fade_frames
+                    stream.push(np.zeros(frames * 160, dtype=np.float32))
+                finally:
+                    stream.reset()
             stream.warmup_seconds = time.perf_counter() - started
         return stream
 
@@ -126,6 +134,7 @@ def register_stream_routes(app, manager) -> None:
                 "max_inference_ms": s.max_inference_ms,
                 "stage_ms": {name: seconds * 1000 / s.chunks
                              for name, seconds in s.stage_seconds.items()} if s.chunks else {},
+                "feature_cache": stream.feature_cache.summary() if stream.feature_cache is not None else {"enabled": False},
             }
             if debug is not None:
                 payload["debug"] = debug
@@ -146,6 +155,8 @@ def register_stream_routes(app, manager) -> None:
                 "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
                 "feature_providers": feature_providers(stream.converter),
                 "warmup_ms": stream.warmup_seconds * 1000,
+                "feature_cache": {"enabled": req.feature_cache,
+                                  "guard_ms": stream.feature_cache.guard_frames * 10 if req.feature_cache else 0},
             }
             if req.debug:
                 ready["debug"] = {
@@ -179,6 +190,7 @@ def register_stream_routes(app, manager) -> None:
                     "inference_ms": (stream.stats.process_seconds - inference_before) * 1000,
                     "output_start_frame": first_frame,
                     "output_frames": stream.stats.emitted_frames - first_frame,
+                    "feature_cache": stream.feature_cache.summary() if stream.feature_cache is not None else {"enabled": False},
                     "stage_ms": {name: (seconds - stages_before.get(name, 0)) * 1000
                                  for name, seconds in stream.stats.stage_seconds.items()
                                  if seconds != stages_before.get(name, 0)},

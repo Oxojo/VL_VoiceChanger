@@ -277,7 +277,7 @@ def cmd_stream_bench(args: argparse.Namespace) -> int:
         seed=cfg.seed,
         output_sr=args.output_sr,
     )
-    stream = StreamingChunkedConverter(conv, cfg, options)
+    stream = StreamingChunkedConverter(conv, cfg, options, feature_cache=args.feature_cache)
     input_samples = max(1, int(round(args.input_frame_ms * SAMPLE_RATE / 1000)))
     pieces = []
     wall_start = time.perf_counter()
@@ -291,6 +291,9 @@ def cmd_stream_bench(args: argparse.Namespace) -> int:
         print(f"出力: {Path(args.output).resolve()}")
 
     stats = stream.stats
+    if stream.feature_cache is not None:
+        cache = stream.feature_cache.summary()
+        print(f"  特徴量キャッシュ（試験）: {cache}")
     # A minimum input accumulation/peek-ahead floor, not measured end-to-end latency.
     min_buffer_ms = (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10
     print(
@@ -400,6 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     pbs.add_argument("--contentvec", default=None)
     pbs.add_argument("--rmvpe", default=None)
     pbs.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
+    pbs.add_argument("--feature-cache", action="store_true", help="境界再計算付き特徴量キャッシュ（試験、音声が変わる可能性あり）")
     pbs.set_defaults(func=cmd_stream_bench)
 
     pn = sub.add_parser("denoise", help="ノイズ除去だけを行う（変換なし）")

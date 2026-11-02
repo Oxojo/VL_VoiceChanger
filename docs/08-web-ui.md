@@ -141,6 +141,14 @@ ContentVec と RMVPE も CUDA 優先で動かす。既定の CPU 設定は従来
 通常モードは従来のバイナリ音声プロトコルを維持する。
 実測・推定・未計測の範囲は [14-streaming-debug.md](14-streaming-debug.md) を参照。
 
+### 特徴量キャッシュ（試験）
+
+マイク変換の「特徴量キャッシュ」をオンにすると、重なった古いF0 / ContentVec特徴量を再利用する。
+境界は設定したcontext以上（最低100 ms）再計算し、20 msの特徴量位置が変わる場合は全量計算へ戻す。
+入力蓄積設定は変えないが、非因果モデルの結果は完全一致しないため、既定OFF。
+画面とdebug JSONに再利用・省略フレーム数を表示する。ファイル変換には適用しない。
+[詳細・同じWAVでの比較方法](16-stream-feature-cache.md)。
+
 ## 3. GPU での実測（2026-10-28 / RTX 3060 Laptop 6 GB）
 
 入力 7.63 秒（`logs/verify/tts-input-ja.wav`）、モデル `tsukuyomi-normal1`（40 kHz）。
@@ -231,6 +239,7 @@ curl -s "http://127.0.0.1:8765/api/denoise/<id>/audio" -o cleaned.wav
    `{"type":"start","model":"tsukuyomi/tsukuyomi-normal1","device":"auto","hop":0.5,"context":0.15,"crossfade":0.05}`。
    `pitch`, `speaker`, `rms_mix`, `seed`, `output_sr`, `ort_cuda`, `debug`（後二者は既定 false）も指定できる。
    `warmup` は既定 true。false は事前準備を省略する診断用で、通常は変更しない。
+   `feature_cache` は既定 false。true は境界再計算付き特徴量キャッシュの試験。
    `denoise` / `dehum` は 0 のみ。範囲外の設定や未定義フィールドは拒否される。
 2. サーバーから `{"type":"ready","input_sr":16000,"output_sr":40000,...}` が返る。
    `buffer_ms` は入力蓄積の下限で、実測遅延ではない。

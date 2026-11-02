@@ -53,10 +53,15 @@ def serve_fixture(port):
             })
 
     server.list_models = lambda: [
-        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold"]
+        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold", "cache-test"]
     ]
     server.manager.model_info = lambda model: {"sample_rate": 48000, "speakers": 1}
-    server.manager._converter = lambda model, device, job, *, ort_cuda=False: Converter(model, ort_cuda)
+    def get_converter(model, device, job, *, ort_cuda=False):
+        if model == "cache-test":
+            from cache_fakes import make_converter
+            return make_converter()
+        return Converter(model, ort_cuda)
+    server.manager._converter = get_converter
 
     @server.app.get("/test/idle")
     async def idle():
@@ -368,6 +373,29 @@ class BrowserStreamingSmoke(unittest.TestCase):
         report = json.loads(Path(result.value.path()).read_text())
         self.assertEqual(report["settings"]["client_preset"], "quality")
         self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 500, places=3)
+
+    def test_feature_cache_trial_updates_metrics_and_debug_export(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("quality")
+        self.page.locator("#featureCache").check()
+        self.page.locator("#liveDebug").check()
+        self.start("cache-test")
+        self.page.wait_for_function("window.testPlayback.length >= 3", timeout=15000)
+        self.assertTrue(self.page.locator("#featureCache").is_disabled())
+        self.assertIn("特徴量キャッシュ試験", self.page.locator("#liveCache").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertTrue(report["settings"]["feature_cache"])
+        self.assertTrue(report["feature_cache"]["enabled"])
+        self.assertGreater(report["feature_cache"]["avoided_frames"], 0)
+        self.assertGreater(report["feature_cache"]["reused_frames"], 0)
+        self.assertEqual(report["settings"]["framing"]["context_ms"], 150)
+        self.assertEqual(report["settings"]["framing"]["crossfade_ms"], 50)
+        self.assertFalse(self.page.locator("#featureCache").is_disabled())
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@
       <div id="liveMetrics" class="hint"></div>
       <div id="liveProviders" class="hint"></div>
       <div id="liveStages" class="hint"></div>
+      <div id="liveCache" class="hint"></div>
       <div id="liveQueue" class="hint"></div>
       <label class="row hint live-debug-toggle"><input id="liveDebug" type="checkbox"> debug モード：遅延の内訳を表示</label>
       <div id="debugPanel" class="hidden">
@@ -111,6 +112,10 @@
           </select>
           <span id="ortHint" class="hint">ピッチ推定・音声特徴抽出も GPU で処理します。対応する onnxruntime-gpu が必要です。</span>
         </label>
+        <div class="field wide">
+          <label class="row hint"><input id="featureCache" type="checkbox"> 特徴量キャッシュ（マイク変換のみ・試験）</label>
+          <p class="hint">古いF0・音声特徴を再利用し、境界はcontext以上（最低100 ms）再計算します。音声が変わる可能性があるため、OFFと比較してください。</p>
+        </div>
         <label class="field wide">ピッチ（半音）
           <span class="range-row">
             <input id="pitch" type="range" min="-24" max="24" step="1" value="0">

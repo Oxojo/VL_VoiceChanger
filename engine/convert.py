@@ -27,6 +27,7 @@ from .audio import SAMPLE_RATE, highpass, load_mono, match_rms, resample, save_w
 from .config import resolve_asset
 from .denoise import noise_floor_db, reduce_noise
 from .features import ContentVec, RMVPE
+from .features.cache import FeatureBatch
 from .model import ModelInfo, build_model, load_checkpoint
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -155,6 +156,7 @@ class VoiceConverter:
         waveform16k: np.ndarray,
         options: ConvertOptions | None = None,
         on_stage: "Callable[[str, float], None] | None" = None,
+        *, feature_cache=None, source_frame: int = 0,
     ) -> tuple[np.ndarray, ConvertReport]:
         """16 kHz モノラル波形を変換し、(波形, レポート) を返す。
 
@@ -162,6 +164,11 @@ class VoiceConverter:
         おおよその進捗（0-1）が通知される。Web UI の進捗表示に使う。
         """
         opt = options or ConvertOptions()
+        if feature_cache is not None and (
+            opt.pad_samples != PAD_SAMPLES or opt.denoise > 0 or opt.dehum > 0
+            or np.asarray(waveform16k).size % 160
+        ):
+            raise ValueError("feature cache requires whole 10ms frames, default padding and no offline denoise/dehum")
         timings: dict[str, float] = {}
 
         def stage(name: str, progress: float) -> None:
@@ -188,12 +195,19 @@ class VoiceConverter:
         audio_pad = np.pad(audio, (opt.pad_samples, opt.pad_samples), mode="reflect")
         p_len = audio_pad.shape[0] // 160
 
-        # --- F0（100 fps）------------------------------------------------
-        t = time.perf_counter()
-        f0 = self.rmvpe.infer(audio_pad)
-        if f0.shape[0] < p_len:
-            f0 = np.pad(f0, (0, p_len - f0.shape[0]), mode="edge")
-        f0 = f0[:p_len]
+        # Feature extraction is separable from synthesis. The default path
+        # remains full-window inference; approximate reuse is session-local.
+        if feature_cache is not None:
+            features = feature_cache.extract(
+                audio_pad, p_len, start_frame=source_frame,
+                real_frames=audio_in.size // 160,
+                extract=lambda samples, frames: self.extract_features(samples, frames, on_stage=on_stage),
+            )
+        else:
+            features = self.extract_features(audio_pad, p_len, on_stage=on_stage)
+        timings.update(features.timings)
+        f0 = features.f0
+        feats_t = features.phone
         voiced_ratio = float(np.mean(f0 > 0)) if p_len else 0.0
         # 無声の子音・息・休止は 0 Hz のまま合成器へ渡す。
         # 全区間を補間すると SineGen の有声判定が常時 ON になり、
@@ -201,23 +215,6 @@ class VoiceConverter:
         f0 = f0 * (2.0 ** (opt.pitch_shift / 12.0))
         pitchf = f0.astype(np.float32)
         pitch = f0_to_coarse(pitchf)
-        timings["f0"] = time.perf_counter() - t
-        stage("f0", 0.15)
-
-        # --- 特徴量（50 fps → 100 fps）-----------------------------------
-        t = time.perf_counter()
-        feats = self.contentvec.extract(audio_pad, layer=12)
-        feats_t = torch.from_numpy(feats)
-        feats_t = F.interpolate(feats_t.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        timings["contentvec"] = time.perf_counter() - t
-        stage("contentvec", 0.35)
-
-        # ContentVec のフレーム数は 20 ms 単位で切り捨てられるため、
-        # p_len（10 ms 単位）に合わせて端を複製・切り詰める。
-        # ここを揃えないと区間ごとに最大 20 ms ずれ、分割変換で時間ずれが累積する。
-        feats_t = self._fit_frames(feats_t, p_len)
-        pitch = self._fit_frames_1d(pitch, p_len)
-        pitchf = self._fit_frames_1d(pitchf, p_len)
 
         # --- 合成 --------------------------------------------------------
         t = time.perf_counter()
@@ -270,6 +267,22 @@ class VoiceConverter:
             timings=timings,
         )
         return audio_out, report
+
+    def extract_features(self, audio_pad, frames, on_stage=None) -> FeatureBatch:
+        """Extract raw F0 and frame-aligned ContentVec, without pitch shifting."""
+        t = time.perf_counter()
+        f0 = self._fit_frames_1d(self.rmvpe.infer(audio_pad), frames)
+        timings = {"f0": time.perf_counter() - t}
+        if on_stage:
+            on_stage("f0", 0.15)
+        t = time.perf_counter()
+        phone = torch.from_numpy(self.contentvec.extract(audio_pad, layer=12))
+        phone = F.interpolate(phone.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+        phone = self._fit_frames(phone, frames)
+        timings["contentvec"] = time.perf_counter() - t
+        if on_stage:
+            on_stage("contentvec", 0.35)
+        return FeatureBatch(phone, f0, timings)
 
     def convert_file(
         self,

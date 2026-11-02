@@ -16,6 +16,7 @@ import numpy as np
 
 from .audio import SAMPLE_RATE
 from .convert import ConvertOptions, VoiceConverter
+from .features.cache import StreamingFeatureCache
 from .realtime import ChunkConfig, FRAME, _frames
 
 
@@ -66,10 +67,13 @@ class StreamingChunkedConverter:
         converter: VoiceConverter,
         config: ChunkConfig | None = None,
         options: ConvertOptions | None = None,
+        *, feature_cache: bool = False,
     ) -> None:
         self.converter = converter
         self.config = config or ChunkConfig()
         self.options = options or ConvertOptions(seed=self.config.seed)
+        if feature_cache and not callable(getattr(converter, "extract_features", None)):
+            raise ValueError("backend does not support streaming feature caching")
 
         if self.config.hop_seconds <= 0 or self.config.context_seconds < 0 or self.config.crossfade_seconds < 0:
             raise ValueError("hop must be positive; context and crossfade must be nonnegative")
@@ -83,6 +87,8 @@ class StreamingChunkedConverter:
         self.samples_per_frame = self.output_sr // 100
         self.hop_frames = _frames(self.config.hop_seconds)
         self.context_frames = _frames(self.config.context_seconds, minimum=0)
+        # Do not shrink the user's feature context merely to increase hits.
+        self.feature_cache = StreamingFeatureCache(max(10, self.context_frames)) if feature_cache else None
         self.fade_frames = min(
             _frames(self.config.crossfade_seconds, minimum=0),
             max(self.hop_frames - 1, 0),
@@ -99,6 +105,8 @@ class StreamingChunkedConverter:
         self._pending_fade = np.zeros(0, dtype=np.float32)
         self._closed = False
         self.stats = StreamStats()
+        if self.feature_cache is not None:
+            self.feature_cache.reset()
 
     def push(self, samples: np.ndarray) -> np.ndarray:
         """Append arbitrary 16 kHz mono PCM samples and emit ready output."""
@@ -139,6 +147,7 @@ class StreamingChunkedConverter:
             len(self.stats.latencies),
             self.stats.stage_seconds.copy(),
         )
+        feature_checkpoint = self.feature_cache.checkpoint() if self.feature_cache is not None else None
         output = []
         required_future = self.context_frames + self.fade_frames
         try:
@@ -156,6 +165,8 @@ class StreamingChunkedConverter:
                 self.stats.stage_seconds,
             ) = checkpoint
             del self.stats.latencies[latency_count:]
+            if self.feature_cache is not None:
+                self.feature_cache.restore(feature_checkpoint)
             raise
 
     def _convert_chunk(self, end: int) -> np.ndarray:
@@ -172,7 +183,12 @@ class StreamingChunkedConverter:
             segment = np.pad(segment, (0, int(0.1 * SAMPLE_RATE) - segment.size))
 
         t0 = time.perf_counter()
-        out, report = self.converter.convert_array(segment, self.options)
+        if self.feature_cache is None:
+            out, report = self.converter.convert_array(segment, self.options)
+        else:
+            out, report = self.converter.convert_array(
+                segment, self.options, feature_cache=self.feature_cache, source_frame=left,
+            )
         dt = time.perf_counter() - t0
 
         # The backend sees the *padded* input, which may be longer than the

@@ -76,7 +76,7 @@ function updateAvailability() {
 function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
-    "#modelSelect, #deviceSelect, #ortDevice, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
+    "#modelSelect, #deviceSelect, #ortDevice, #featureCache, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
     "#speaker, #seed, #hop, #context, #crossfade, #liveDebug, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
@@ -127,6 +127,7 @@ class LiveSession {
         const settings = {
           type: "start", model: $("modelSelect").value, device: $("deviceSelect").value,
           ort_cuda: $("ortDevice").value === "cuda",
+          feature_cache: $("featureCache").checked,
           debug: Boolean(this.debug),
           pitch: Number($("pitch").value), speaker: Number($("speaker").value),
           rms_mix: Number($("rmsMix").value), seed: Number($("seed").value || 1234),
@@ -158,7 +159,8 @@ class LiveSession {
             if (this.debug) {
               if (!message.debug) throw new Error("サーバーが debug モードに対応していません");
               this.debug.settings = { ...this.debug.settings, framing: message.debug,
-                output_sr: message.output_sr, warmup_ms: message.warmup_ms };
+                output_sr: message.output_sr, warmup_ms: message.warmup_ms,
+                feature_cache_config: message.feature_cache };
               this.debug.device(this.context);
               renderDebug(this.debug, true);
             }
@@ -279,6 +281,13 @@ class LiveSession {
   }
 
   stats(message) {
+    const cache = message.feature_cache;
+    const avoided = cache?.enabled && cache.requested_frames
+      ? cache.avoided_frames * 100 / cache.requested_frames : 0;
+    $("liveCache").textContent = cache?.enabled
+      ? `特徴量キャッシュ試験: 抽出入力を ${avoided.toFixed(1)}% 省略 / 再利用 ${cache.reused_frames} フレーム / 保持 ${cache.retained_frames} フレーム（境界${cache.guard_ms} ms）`
+      : "";
+    if (this.debug) this.debug.latestFeatureCache = cache;
     const names = { f0: "ピッチ推定", contentvec: "音声特徴", synth: "合成", post: "後処理" };
     $("liveStages").textContent = Object.entries(message.stage_ms || {}).length
       ? "区間あたり平均: " + Object.entries(message.stage_ms)
@@ -376,6 +385,7 @@ $("liveStartBtn").addEventListener("click", async () => {
   $("liveQueue").textContent = "";
   $("liveProviders").textContent = "";
   $("liveStages").textContent = "";
+  $("liveCache").textContent = "";
   $("liveWarmup").textContent = "";
   show("接続・モデル読み込み・初回推論の準備中…（準備が終わってからマイクを開始します）");
   try { await current.start(); } catch (err) { current.fail(err); }

@@ -371,6 +371,29 @@ class TestStreamingWeb(unittest.TestCase):
             self.assertEqual(output.size, 90 * 480)
             np.testing.assert_array_equal(output, 1)
 
+    def test_feature_cache_is_opt_in_warmed_and_reported(self):
+        from cache_fakes import make_converter
+
+        self.manager._converter.return_value = make_converter()
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, warmup=True, feature_cache=True, debug=True)
+            self.assertTrue(ready["feature_cache"]["enabled"])
+            for _ in range(90):
+                ws.send_bytes(np.zeros(320, dtype="<f4").tobytes())
+                _, ack = self.receive(ws)
+                if ack["chunks"] == 0:
+                    self.assertEqual(ack["feature_cache"]["requested_frames"], 0)
+            self.assertGreater(ack["feature_cache"]["avoided_frames"], 0)
+            self.assertGreater(ack["feature_cache"]["reused_frames"], 0)
+            self.assertEqual(ack["debug"]["feature_cache"], ack["feature_cache"])
+
+    def test_feature_cache_reports_unsupported_backend_before_ready(self):
+        with self.client.websocket_connect("/api/stream") as ws:
+            ws.send_json({"model": "test", "feature_cache": True})
+            error = ws.receive_json()
+            self.assertEqual(error["type"], "error")
+            self.assertIn("does not support", error["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
