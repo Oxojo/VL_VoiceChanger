@@ -18,13 +18,16 @@ PyTorch が CUDA を使えても、ONNX の対応ビルドや依存 DLL が揃�
 対応表: <https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements>。
 
 通常の `npm run dev` の依存準備後、サーバーを停止し、**同じ Python 環境**で CPU 版を GPU 版へ入れ替える。
+以下は PyTorch が CUDA 12.x の場合の例。確認した ONNX Runtime GPU 1.22.0 の公式Windows版は CUDA 12.2 向け。
+1.31.1 の CUDA 13.0 向けビルドと、PyTorch cu126 の CUDA 12.6 ライブラリはメジャー版が異なる。
+`>=1.20` のような下限だけの指定では CUDA 13 向けまで入るため、この例では版を固定する。
 
 ```bash
 source .venv/bin/activate
 # Windows PowerShell は .\.venv\Scripts\Activate.ps1
-python -m pip uninstall -y onnxruntime
-python -m pip install "onnxruntime-gpu>=1.20"
-python -c "import torch; import onnxruntime as ort; print(ort.get_available_providers())"
+python -m pip uninstall -y onnxruntime onnxruntime-gpu
+python -m pip install "onnxruntime-gpu==1.22.0"
+python -c "import torch; import onnxruntime as ort; print('Torch CUDA:', torch.version.cuda); print('ORT CUDA:', getattr(ort, 'cuda_version', 'unknown')); print(ort.get_available_providers())"
 npm run dev
 ```
 
