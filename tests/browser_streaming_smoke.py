@@ -33,21 +33,30 @@ def serve_fixture(port):
     class Converter:
         info = SimpleNamespace(sample_rate=48000)
 
-        def __init__(self, model):
+        def __init__(self, model, ort_cuda=False):
             self.model = model
+            self.calls = 0
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if ort_cuda else ["CPUExecutionProvider"]
+            session = SimpleNamespace(get_providers=lambda: providers)
+            self.contentvec = self.rmvpe = SimpleNamespace(session=session)
 
         def convert_array(self, samples, options):
+            self.calls += 1
+            if self.model == "cold" and self.calls == 1:
+                time.sleep(2.3)
             if self.model == "slow":
                 time.sleep(3)
             if self.model == "broken":
                 raise ValueError("test backend output failed")
-            return np.repeat(samples * 0.5, 3), None
+            return np.repeat(samples * 0.5, 3), SimpleNamespace(timings={
+                "f0": 0.002, "contentvec": 0.003, "synth": 0.004, "post": 0.001,
+            })
 
     server.list_models = lambda: [
-        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken"]
+        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold"]
     ]
     server.manager.model_info = lambda model: {"sample_rate": 48000, "speakers": 1}
-    server.manager._converter = lambda model, device, job: Converter(model)
+    server.manager._converter = lambda model, device, job, *, ort_cuda=False: Converter(model, ort_cuda)
 
     @server.app.get("/test/idle")
     async def idle():
@@ -235,6 +244,130 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.page.wait_for_function("window.testTracks.every(t => t.readyState === 'ended')")
         self.wait_stopped()
         self.assertEqual(self.page.evaluate("window.testPlayback.length"), 0)
+
+    def test_feature_cuda_setting_and_profile_display(self):
+        self.page.locator("#ortDevice").select_option("cuda")
+        self.start()
+        self.page.wait_for_function("window.testPlayback.length > 0")
+        self.assertIn("CUDA 優先", self.page.locator("#liveProviders").inner_text())
+        self.assertIn("ピッチ推定 2.0 ms", self.page.locator("#liveStages").inner_text())
+        self.assertIn("音声特徴 3.0 ms", self.page.locator("#liveStages").inner_text())
+        self.assertTrue(self.page.locator("#ortDevice").is_disabled())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        self.assertFalse(self.page.locator("#ortDevice").is_disabled())
+
+    def test_debug_mode_records_latency_and_exports_without_audio(self):
+        import json
+
+        self.page.locator("#liveDebug").check()
+        self.assertTrue(self.page.locator("#debugPanel").is_visible())
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertTrue(self.page.locator("#liveDebug").is_disabled())
+        self.assertIn("ピッチ推定", self.page.locator("#debugRows").inner_text())
+        self.assertIn("未測定", self.page.locator("#debugPanel").inner_text())
+        self.assertIn("hop 100", self.page.locator("#debugConfig").inner_text())
+        self.page.screenshot(path=str(Path(__file__).resolve().parents[1] / "logs" / "debug-mode.png"), full_page=True)
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        export = json.loads(Path(result.value.path()).read_text())
+        self.assertTrue(export["settings"]["debug"])
+        self.assertEqual(export["reason"], "停止しました")
+        self.assertGreater(len(export["records"]), 0)
+        self.assertLessEqual(len(export["records"]), 300)
+        self.assertGreater(export["records"][0]["graph_capture_to_schedule_ms"], 0)
+        self.assertEqual(export["records"][0]["output_start_frame"], 0)
+        self.assertAlmostEqual(export["records"][0]["accumulation_ms"], 120, places=3)
+        self.assertEqual(export["client_state"]["pending_audio_ms"], 0)
+        self.assertIsNone(export["client_state"]["inflight_elapsed_ms"])
+        self.assertNotIn("samples", export["records"][0])
+        self.page.locator("#liveDebug").uncheck()
+        self.assertFalse(self.page.locator("#debugPanel").is_visible())
+
+    def test_normal_mode_does_not_show_debug_panel(self):
+        self.assertFalse(self.page.locator("#liveDebug").is_checked())
+        self.start()
+        self.page.wait_for_function("window.testPlayback.length > 0")
+        self.assertFalse(self.page.locator("#debugPanel").is_visible())
+        self.assertTrue(self.page.locator("#debugExport").is_disabled())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+
+    def test_debug_exports_failure_before_first_audio_output(self):
+        import json
+
+        self.page.locator("#liveDebug").check()
+        self.start("slow")
+        self.page.wait_for_function("document.getElementById('liveStatus').textContent.includes('追いつかない')", timeout=15000)
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        export = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(export["records"], [])
+        self.assertIn("追いつかない", export["reason"])
+        self.assertGreater(export["client_state"]["pending_audio_ms"], 2000)
+        self.assertGreater(export["client_state"]["inflight_elapsed_ms"], 0)
+        self.assertIsNotNone(export["client_state"]["inflight_request_seq"])
+
+    def test_cold_inference_finishes_before_microphone_opens(self):
+        self.start("cold")
+        self.page.wait_for_timeout(400)
+        self.assertEqual(self.page.evaluate("window.testTracks.length"), 0)
+        self.assertIn("初回推論", self.page.locator("#liveStatus").inner_text())
+        self.page.wait_for_function("window.testPlayback.length >= 2", timeout=15000)
+        self.assertIn("マイク開始前", self.page.locator("#liveWarmup").inner_text())
+        self.assertNotIn("追いつかない", self.page.locator("#liveStatus").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+
+    def test_low_latency_preset_reduces_input_accumulation(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("low")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.2")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.06")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.02")
+        self.assertTrue(self.page.locator("#context").evaluate("e => e.validity.valid"))
+        self.page.locator("#liveDebug").check()
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertTrue(self.page.locator("#streamPreset").is_disabled())
+        self.assertIn("入力蓄積 280 ms", self.page.locator("#liveBuffer").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(report["settings"]["client_preset"], "low")
+        self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 280, places=3)
+        self.page.locator("#streamPreset").select_option("balanced")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.5")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.15")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.05")
+        self.page.locator("#context").fill("0.1")
+        self.assertEqual(self.page.locator("#streamPreset").input_value(), "custom")
+
+    def test_quality_latency_preset_keeps_original_lookahead(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("quality")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.3")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.15")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.05")
+        self.page.locator("#liveDebug").check()
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertIn("入力蓄積 500 ms", self.page.locator("#liveBuffer").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(report["settings"]["client_preset"], "quality")
+        self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 500, places=3)
 
 
 if __name__ == "__main__":

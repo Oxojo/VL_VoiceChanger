@@ -1,11 +1,20 @@
 import { CaptureResampler } from "./stream-audio.js";
 
 class StreamCapture extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     this.active = true;
+    this.debug = Boolean(options.processorOptions?.debug);
+    this.captureOrigin = null;
+    this.sentSamples = 0;
     this.resampler = new CaptureResampler(sampleRate, (samples) => {
-      this.port.postMessage({ type: "audio", samples }, [samples.buffer]);
+      const message = { type: "audio", samples };
+      if (this.debug) {
+        message.captureStart = this.captureOrigin + this.sentSamples / 16000;
+        this.sentSamples += samples.length;
+        message.captureEnd = this.captureOrigin + this.sentSamples / 16000;
+      }
+      this.port.postMessage(message, [samples.buffer]);
     });
     this.port.onmessage = (event) => {
       if (event.data.type === "stop" && this.active) {
@@ -17,7 +26,10 @@ class StreamCapture extends AudioWorkletProcessor {
   }
 
   process(inputs) {
-    if (this.active && inputs[0]?.[0]) this.resampler.push(inputs[0][0]);
+    if (this.active && inputs[0]?.[0]) {
+      if (this.debug && this.captureOrigin === null) this.captureOrigin = currentTime;
+      this.resampler.push(inputs[0][0]);
+    }
     // Output remains silent: never monitor raw microphone audio.
     return this.active;
   }

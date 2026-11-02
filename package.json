@@ -8,6 +8,6 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "setup": "node scripts/dev.mjs --setup",
-    "test:audio": "node --test tests/test_stream_audio.mjs"
+    "test:audio": "node --test tests/test_stream_audio.mjs tests/test_stream_debug.mjs"
   }
 }

@@ -172,7 +172,7 @@ class TestStreamingChunkedConverter(unittest.TestCase):
         from engine.realtime import ChunkedConverter
 
         for frames in (1, 5, 19, 20, 21, 23, 39, 40, 41, 44, 60, 61, 100):
-            for fade in (0, 0.04, 0.23):
+            for fade in (0, 0.02, 0.04, 0.23):
                 with self.subTest(frames=frames, fade=fade):
                     cfg = ChunkConfig(hop_seconds=0.2, context_seconds=0.06, crossfade_seconds=fade)
                     audio = np.zeros(FRAME * frames, dtype=np.float32)
@@ -321,6 +321,26 @@ class TestStreamingChunkedConverter(unittest.TestCase):
         np.testing.assert_array_equal(
             np.concatenate((stream.push(audio), stream.flush())), audio
         )
+
+    def test_stage_timings_rollback_with_unreturned_audio(self) -> None:
+        class ProfiledConverter(IdentityConverter):
+            def convert_array(self, samples, options):
+                output, _ = super().convert_array(samples, options)
+                if len(self.segments) == 3:
+                    output = output[:-FRAME * 5]
+                return output, SimpleNamespace(timings={"f0": 0.002, "contentvec": 0.003})
+
+        stream = StreamingChunkedConverter(ProfiledConverter(), self.cfg)
+        stream.push(np.zeros(FRAME * 30, dtype=np.float32))
+        self.assertEqual(stream.stats.stage_seconds, {"f0": 0.002, "contentvec": 0.003})
+        with self.assertRaisesRegex(ValueError, "more than one 10 ms output frame"):
+            stream.push(np.zeros(FRAME * 40, dtype=np.float32))
+        self.assertEqual(stream.stats.stage_seconds, {"f0": 0.002, "contentvec": 0.003})
+        stream.push(np.empty(0))
+        self.assertEqual(stream.stats.chunks, 3)
+        self.assertAlmostEqual(stream.stats.stage_seconds["f0"], 0.006)
+        stream.reset()
+        self.assertEqual(stream.stats.stage_seconds, {})
 
 
 

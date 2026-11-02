@@ -24,6 +24,7 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
+import onnxruntime as ort
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,7 @@ from ..audio import SAMPLE_RATE, load_mono, resample, save_wav
 from ..config import REPO_ROOT
 from ..convert import ConvertOptions, VoiceConverter
 from ..denoise import noise_floor_db, reduce_noise
+from ..features.providers import ort_providers, verify_ort_cuda
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 from .stream import register_stream_routes
@@ -145,7 +147,7 @@ class JobManager:
         self._order: list[str] = []
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vc-job")
-        self._converters: dict[tuple[str, str], VoiceConverter] = {}
+        self._converters: dict[tuple[str, str, bool], VoiceConverter] = {}
         self._model_info: dict[str, dict] = {}
         self._stream_active = False
         WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -268,14 +270,15 @@ class JobManager:
                         p.unlink(missing_ok=True)
                     job_dir.rmdir()
 
-    def _converter(self, model_id: str, device: str, job: Job) -> VoiceConverter:
-        key = (model_id, device)
+    def _converter(self, model_id: str, device: str, job: Job, *, ort_cuda: bool = False) -> VoiceConverter:
+        key = (model_id, device, ort_cuda)
         conv = self._converters.get(key)
         if conv is not None:
             return conv
         job.stage = STAGE_LABELS["loading"]
         path = model_path(model_id)
-        conv = VoiceConverter(path, device=device)
+        conv = VoiceConverter(path, device=device, providers=ort_providers(ort_cuda))
+        verify_ort_cuda(conv, ort_cuda)
         # 直近 2 つだけ保持（GPU メモリとロード時間のバランス）
         if len(self._converters) >= 2:
             self._converters.pop(next(iter(self._converters)))
@@ -287,7 +290,7 @@ class JobManager:
         job.status = "running"
         try:
             req = job.request
-            conv = self._converter(req["model"], req["device"], job)
+            conv = self._converter(req["model"], req["device"], job, ort_cuda=req.get("ort_cuda", False))
             wav = load_mono(job.input_path, SAMPLE_RATE)  # type: ignore[arg-type]
 
             options = ConvertOptions(
@@ -440,6 +443,7 @@ def health() -> dict:
         "cuda": cuda,
         "device": torch.cuda.get_device_name(0) if cuda else "CPU",
         "default_device": "cuda" if cuda else "cpu",
+        "ort_cuda_available": "CUDAExecutionProvider" in ort.get_available_providers(),
         "models_dir": str(MODELS_DIR),
         "limits": {"max_seconds": MAX_SECONDS, "max_upload_mb": MAX_UPLOAD_BYTES // 1024 // 1024},
     }
@@ -576,6 +580,7 @@ async def create_job(
     denoise: float = Form(0.0),
     dehum: float = Form(0.0),
     metrics: bool = Form(True),
+    ort_cuda: bool = Form(False),
 ) -> JSONResponse:
     model_path(model)  # 存在しなければ 404 を返す
 
@@ -591,6 +596,7 @@ async def create_job(
     request = {
         "model": model,
         "device": device,
+        "ort_cuda": bool(ort_cuda),
         "pitch": max(-24, min(24, int(pitch))),
         "speaker": max(0, int(speaker)),
         "rms_mix": max(0.0, min(1.0, float(rms_mix))),
@@ -635,7 +641,7 @@ def index() -> HTMLResponse:
     stamp = int(
         max(
             (STATIC_DIR / name).stat().st_mtime
-            for name in ("index.html", "app.js", "style.css", "live.js", "stream-audio.js", "stream-capture.js")
+            for name in ("index.html", "app.js", "style.css", "live.js", "stream-audio.js", "stream-capture.js", "stream-debug.js")
         )
     )
     html = html.replace("?v=__BUILD__", f"?v={stamp}")

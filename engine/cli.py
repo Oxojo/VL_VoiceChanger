@@ -23,6 +23,7 @@ from .config import resolve_asset
 from .convert import ConvertOptions, VoiceConverter, interpolate_unvoiced
 from .denoise import noise_floor_db, reduce_noise
 from .features import RMVPE
+from .features.providers import feature_providers, ort_providers, verify_ort_cuda
 from .model import build_model, load_checkpoint
 from .realtime import ChunkConfig, ChunkedConverter
 from .streaming import StreamingChunkedConverter
@@ -42,26 +43,14 @@ def _fmt_seconds(sec: float) -> str:
 
 def _ort_providers(enable_cuda: bool) -> list[str] | None:
     """Select ONNX GPU execution explicitly instead of assuming torch CUDA implies it."""
-    if not enable_cuda:
-        return None
-    import onnxruntime as ort
-
-    if "CUDAExecutionProvider" not in ort.get_available_providers():
-        raise RuntimeError(
-            "ONNX CUDA provider is not installed. Install a compatible onnxruntime-gpu "
-            "and verify its CUDA/cuDNN runtime before using --ort-cuda."
-        )
-    return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    return ort_providers(enable_cuda)
 
 
 def _verify_ort_cuda(converter: VoiceConverter, enable_cuda: bool) -> None:
-    if not enable_cuda:
-        return
-    for name in ("contentvec", "rmvpe"):
-        providers = getattr(converter, name).session.get_providers()
-        if not providers or providers[0] != "CUDAExecutionProvider":
-            raise RuntimeError(f"{name}: expected CUDAExecutionProvider, got {providers}")
-        print(f"  {name} ONNX providers: {providers}")
+    verify_ort_cuda(converter, enable_cuda)
+    if enable_cuda:
+        for name, providers in feature_providers(converter).items():
+            print(f"  {name} ONNX providers: {providers}")
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:

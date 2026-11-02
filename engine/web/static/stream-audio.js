@@ -72,7 +72,9 @@ export class StreamPlayer {
     source.onended = () => { this.sources.delete(source); source.disconnect(); };
     source.start(start);
     this.nextTime = start + samples.length / this.sampleRate;
+    const firstSample = this.samples;
     this.samples += samples.length;
+    return { startTime: start, graphTime: now, firstSample, samples: samples.length };
   }
 
   stop() {

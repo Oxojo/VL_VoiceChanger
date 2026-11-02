@@ -38,6 +38,9 @@ capture and incremental playback through `/api/stream`; see
 [Web UI instructions](08-web-ui.md#マイクのストリーミング変換試験機能).
 The ONNX feature extractors continue using CPU execution
 providers by default, even if the RVC synthesizer uses CUDA.
+The Web UI also exposes explicit CUDA selection for feature extraction,
+verifies both sessions, and displays actual providers and per-stage mean timings.
+See [the CUDA trial](13-web-onnx-cuda.md) for installation and A/B comparison.
 
 **Do not call `push()` from a real-time audio callback.** The method runs
 blocking model inference; use an audio ring buffer and a dedicated worker

@@ -21,14 +21,37 @@
     <div class="card live-card">
       <h2>マイクでストリーミング変換 <span class="badge">試験機能</span></h2>
       <p class="hint">下の変換設定を使って、話しながら変換音声を再生します。ヘッドホンを使用してください。</p>
+      <label class="field">区間プリセット
+        <select id="streamPreset">
+          <option value="balanced">従来設定（入力蓄積700 ms）</option>
+          <option value="quality">品質寄り低遅延・試験（入力蓄積500 ms）</option>
+          <option value="low">短い先読み・低遅延実験（入力蓄積280 ms・音質注意）</option>
+          <option value="custom">手動設定</option>
+        </select>
+      </label>
+      <p id="streamPresetHint" class="hint">hop 500 / context 150 / crossfade 50 ms。現在の設定を基準に比較できます。</p>
       <div class="row">
         <button id="liveStartBtn" class="primary" disabled>マイク変換を開始</button>
         <button id="liveStopBtn" class="ghost" disabled>停止して残りを再生</button>
       </div>
       <p id="liveStatus" role="status" aria-live="polite">モデルを選んで開始してください</p>
       <div id="liveBuffer" class="hint">既定設定では 700 ms の入力蓄積に加え、推論・通信・再生に時間がかかります。</div>
+      <div id="liveWarmup" class="hint"></div>
       <div id="liveMetrics" class="hint"></div>
+      <div id="liveProviders" class="hint"></div>
+      <div id="liveStages" class="hint"></div>
       <div id="liveQueue" class="hint"></div>
+      <label class="row hint live-debug-toggle"><input id="liveDebug" type="checkbox"> debug モード：遅延の内訳を表示</label>
+      <div id="debugPanel" class="hidden">
+        <p><strong>入力 → 再生開始予定の推定遅延: <span id="debugTotal">出力待ち</span></strong></p>
+        <p class="hint">音声グラフ上の推定で、実マイクから耳までの遅延は未測定です。モデル準備・マイク許可待ちは含みません。行には内数や異なる時計の計測が含まれるため、すべてを足し合わせないでください。</p>
+        <p id="debugConfig" class="hint"></p>
+        <p id="debugSummary" class="hint">開始すると計測します。</p>
+        <p id="debugLiveState" class="hint"></p>
+        <div class="debug-table-wrap"><table class="metrics debug-table"><thead><tr><th>項目</th><th>時間</th><th>範囲・測定方法</th></tr></thead><tbody id="debugRows"></tbody></table></div>
+        <p class="hint">入力デバイス・OSの取り込み遅延は未取得。直近300出力を保持し、音声を含まない診断JSONを保存できます。</p>
+        <button id="debugExport" class="ghost" disabled>診断JSONを保存</button>
+      </div>
       <details class="hint live-options">
         <summary>区間の設定・使い方</summary>
         <p>変換モードを「分割」にすると hop / context / crossfade を調整できます。マイク変換はモードの選択にかかわらずストリーミングで処理します。</p>
@@ -81,6 +104,13 @@
             <option value="16000">16 kHz</option>
           </select>
         </label>
+        <label class="field wide">特徴抽出の高速化
+          <select id="ortDevice">
+            <option value="cpu">CPU（従来どおり）</option>
+            <option value="cuda">GPU / CUDA（試験）</option>
+          </select>
+          <span id="ortHint" class="hint">ピッチ推定・音声特徴抽出も GPU で処理します。対応する onnxruntime-gpu が必要です。</span>
+        </label>
         <label class="field wide">ピッチ（半音）
           <span class="range-row">
             <input id="pitch" type="range" min="-24" max="24" step="1" value="0">
@@ -125,7 +155,7 @@
           <input id="hop" type="number" min="0.1" max="2" step="0.05" value="0.5">
         </label>
         <label class="field">context（秒）
-          <input id="context" type="number" min="0" max="1" step="0.05" value="0.15">
+          <input id="context" type="number" min="0" max="1" step="0.01" value="0.15">
         </label>
         <label class="field">crossfade（秒）
           <input id="crossfade" type="number" min="0" max="0.2" step="0.01" value="0.05">

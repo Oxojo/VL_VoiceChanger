@@ -322,6 +322,7 @@ function collectForm() {
   form.append("audio", state.wavBlob, "input.wav");
   form.append("model", $("modelSelect").value);
   form.append("device", $("deviceSelect").value);
+  form.append("ort_cuda", String($("ortDevice").value === "cuda"));
   form.append("pitch", $("pitch").value);
   form.append("speaker", $("speaker").value || "0");
   form.append("rms_mix", $("rmsMix").value);
@@ -464,6 +465,7 @@ function renderMetrics(job) {
     add("ノイズ除去", `強さ ${fmt(job.request.denoise, 2)}${hum}`);
   }
   add("デバイス", job.request.device.toUpperCase());
+  add("特徴抽出", job.request.ort_cuda ? "CUDA 優先" : "CPU");
 
   $("metricsBody").innerHTML = rows.join("");
 }
@@ -527,6 +529,9 @@ async function init() {
     }
     $("deviceSelect").value = "auto";
     $("deviceSelect").title = `torch ${health.torch}`;
+    $("ortHint").textContent = health.ort_cuda_available
+      ? "ONNX CUDA 版を検出しました。開始時に両特徴抽出器の CUDA 利用可否を確認します。"
+      : "特徴抽出の GPU 化には、対応する onnxruntime-gpu と CUDA / cuDNN が必要です。";
   } catch (_) {
     $("healthBadge").textContent = "サーバーに接続できません";
     return;
