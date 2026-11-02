@@ -350,6 +350,25 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.page.locator("#context").fill("0.1")
         self.assertEqual(self.page.locator("#streamPreset").input_value(), "custom")
 
+    def test_quality_latency_preset_keeps_original_lookahead(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("quality")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.3")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.15")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.05")
+        self.page.locator("#liveDebug").check()
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertIn("入力蓄積 500 ms", self.page.locator("#liveBuffer").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(report["settings"]["client_preset"], "quality")
+        self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 500, places=3)
+
 
 if __name__ == "__main__":
     unittest.main()

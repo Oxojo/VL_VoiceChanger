@@ -348,6 +348,29 @@ class TestStreamingWeb(unittest.TestCase):
             self.assertEqual(done["chunks"], 4)
             np.testing.assert_array_equal(result, 1)
 
+    def test_quality_latency_settings_keep_context_and_crossfade(self):
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, warmup=True, debug=True, hop=0.3, context=0.15, crossfade=0.05)
+            self.assertEqual(ready["buffer_ms"], 500)
+            self.assertEqual([call[0].size for call in self.fake.calls], [160 * 50, 160 * 65])
+            pieces = []
+            for i in range(45):
+                ws.send_bytes(np.ones(320, dtype="<f4").tobytes())
+                output, ack = self.receive(ws)
+                pieces.append(output)
+                if i < 24:
+                    self.assertEqual(output.size, 0)
+                if i == 24:
+                    self.assertEqual(ack["emitted_frames"], 30)
+            ws.send_json({"type": "stop"})
+            output, done = self.receive(ws)
+            pieces.append(output)
+            self.assertEqual(done["emitted_frames"], 90)
+            self.assertEqual(done["chunks"], 3)
+            output = np.concatenate(pieces)
+            self.assertEqual(output.size, 90 * 480)
+            np.testing.assert_array_equal(output, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,12 +7,15 @@ let session = null;
 let lastDebug = null;
 const STREAM_PRESETS = {
   balanced: { hop: "0.5", context: "0.15", crossfade: "0.05" },
+  quality: { hop: "0.3", context: "0.15", crossfade: "0.05" },
   low: { hop: "0.2", context: "0.06", crossfade: "0.02" },
 };
 
 function showPresetHint() {
   const name = $("streamPreset").value;
-  $("streamPresetHint").textContent = name === "low"
+  $("streamPresetHint").textContent = name === "quality"
+    ? "hop 300 / context 150 / crossfade 50 ms。先読みとクロスフェードは従来値を維持し、hopだけ縮めます。音質を比較して選んでください。"
+    : name === "low"
     ? "hop 200 / context 60 / crossfade 20 ms。推論回数は毎秒5回になります。途切れや音質を確認し、追いつかない場合は従来設定へ戻してください。"
     : name === "balanced"
       ? "hop 500 / context 150 / crossfade 50 ms。現在の設定を基準に比較できます。"
