@@ -47,7 +47,8 @@ python -m pip install "onnxruntime>=1.20"
 1. モデル、合成デバイス、hop/context/crossfade、出力レートを固定し、
    「特徴抽出の高速化 → CPU」で開始する。
 2. 十数秒以上試し、「区間あたり平均」のピッチ推定・音声特徴・合成・後処理、
-   推論 RTF、最大推論、送信待ちを記録する。初回ウォームアップも含む。
+   推論 RTF、最大推論、送信待ちを記録する。
+   マイク開始前の事前準備は別表示され、これらの統計には含まれない。
 3. 停止して「GPU / CUDA（試験）」に切り替え、同じ条件で再実行する。
 4. ContentVec / RMVPE が両方 **CUDA 優先**と表示されることを確認し、処理時間を比較する。
 
@@ -58,6 +59,7 @@ CUDA 未導入や、読み込み時に CPU にフォールバックしていた�
 ファイル変換にも適用でき、multipart / WebSocket の両方で `ort_cuda: true` を受け付ける。
 
 厳密な比較には同じ WAV を用意し、以下を複数回実行する。差は `--ort-cuda` の有無だけにする。
+CLI は Web UI と違って事前推論を自動実行しないので、初回コストを含む点にも注意する。
 
 ```bash
 python -m engine stream-bench -m models/tsukuyomi/tsukuyomi-normal1.pth \

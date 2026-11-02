@@ -35,11 +35,15 @@ def serve_fixture(port):
 
         def __init__(self, model, ort_cuda=False):
             self.model = model
+            self.calls = 0
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if ort_cuda else ["CPUExecutionProvider"]
             session = SimpleNamespace(get_providers=lambda: providers)
             self.contentvec = self.rmvpe = SimpleNamespace(session=session)
 
         def convert_array(self, samples, options):
+            self.calls += 1
+            if self.model == "cold" and self.calls == 1:
+                time.sleep(2.3)
             if self.model == "slow":
                 time.sleep(3)
             if self.model == "broken":
@@ -49,7 +53,7 @@ def serve_fixture(port):
             })
 
     server.list_models = lambda: [
-        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken"]
+        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold"]
     ]
     server.manager.model_info = lambda model: {"sample_rate": 48000, "speakers": 1}
     server.manager._converter = lambda model, device, job, *, ort_cuda=False: Converter(model, ort_cuda)
@@ -307,6 +311,17 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.assertGreater(export["client_state"]["pending_audio_ms"], 2000)
         self.assertGreater(export["client_state"]["inflight_elapsed_ms"], 0)
         self.assertIsNotNone(export["client_state"]["inflight_request_seq"])
+
+    def test_cold_inference_finishes_before_microphone_opens(self):
+        self.start("cold")
+        self.page.wait_for_timeout(400)
+        self.assertEqual(self.page.evaluate("window.testTracks.length"), 0)
+        self.assertIn("初回推論", self.page.locator("#liveStatus").inner_text())
+        self.page.wait_for_function("window.testPlayback.length >= 2", timeout=15000)
+        self.assertIn("マイク開始前", self.page.locator("#liveWarmup").inner_text())
+        self.assertNotIn("追いつかない", self.page.locator("#liveStatus").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
 
 
 if __name__ == "__main__":

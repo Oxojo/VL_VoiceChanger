@@ -136,9 +136,13 @@ class LiveSession {
             this.player = new StreamPlayer(this.context, message.output_sr);
             this.maxSamples = message.max_seconds * 16000;
             this.totalSamples = 0;
+            $("liveWarmup").textContent = message.warmup_ms > 0
+              ? `初回推論の事前準備 ${message.warmup_ms.toFixed(0)} ms（マイク開始前・遅延統計には含めません）`
+              : "";
             if (this.debug) {
               if (!message.debug) throw new Error("サーバーが debug モードに対応していません");
-              this.debug.settings = { ...this.debug.settings, framing: message.debug, output_sr: message.output_sr };
+              this.debug.settings = { ...this.debug.settings, framing: message.debug,
+                output_sr: message.output_sr, warmup_ms: message.warmup_ms };
               this.debug.device(this.context);
               renderDebug(this.debug, true);
             }
@@ -356,7 +360,8 @@ $("liveStartBtn").addEventListener("click", async () => {
   $("liveQueue").textContent = "";
   $("liveProviders").textContent = "";
   $("liveStages").textContent = "";
-  show("接続・モデル準備中…");
+  $("liveWarmup").textContent = "";
+  show("接続・モデル読み込み・初回推論の準備中…（準備が終わってからマイクを開始します）");
   try { await current.start(); } catch (err) { current.fail(err); }
 });
 $("liveStopBtn").addEventListener("click", () => {

@@ -31,6 +31,7 @@ class StreamRequest(BaseModel):
     device: str = "auto"
     ort_cuda: bool = False
     debug: bool = False
+    warmup: bool = True
     pitch: int = Field(default=0, ge=-24, le=24)
     speaker: int = Field(default=0, ge=0, le=255)
     rms_mix: float = Field(default=0.25, ge=0, le=1)
@@ -61,7 +62,7 @@ class StreamRequest(BaseModel):
         if self.output_sr and self.output_sr % 100:
             raise ValueError("出力サンプリングレートは 100 の倍数にしてください")
         conv = manager._converter(self.model, device, Job(id="stream", request={}), ort_cuda=self.ort_cuda)
-        return StreamingChunkedConverter(
+        stream = StreamingChunkedConverter(
             conv,
             ChunkConfig(self.hop, self.context, self.crossfade, None if self.seed < 0 else self.seed),
             ConvertOptions(
@@ -69,6 +70,25 @@ class StreamRequest(BaseModel):
                 seed=None if self.seed < 0 else self.seed, output_sr=self.output_sr or None,
             ),
         )
+        stream.warmup_seconds = 0.0
+        if self.warmup:
+            # Exercise both the first window (no left context) and the next
+            # steady-state window before the browser opens its microphone.
+            # Reset only adapter state; keep the loaded model/CUDA kernels.
+            started = time.perf_counter()
+            lengths = dict.fromkeys((
+                stream.hop_frames + stream.context_frames + stream.fade_frames,
+                stream.hop_frames + stream.context_frames * 2 + stream.fade_frames,
+            ))
+            for frames in lengths:
+                # A disposable adapter validates the model output while avoiding
+                # the many intermediate history lengths when context > hop.
+                probe = StreamingChunkedConverter(
+                    conv, ChunkConfig(frames / 100, 0, 0), stream.options,
+                )
+                probe.push(np.zeros(frames * 160, dtype=np.float32))
+            stream.warmup_seconds = time.perf_counter() - started
+        return stream
 
 
 def register_stream_routes(app, manager) -> None:
@@ -125,6 +145,7 @@ def register_stream_routes(app, manager) -> None:
                 "max_seconds": MAX_STREAM_FRAMES / 100,
                 "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
                 "feature_providers": feature_providers(stream.converter),
+                "warmup_ms": stream.warmup_seconds * 1000,
             }
             if req.debug:
                 ready["debug"] = {

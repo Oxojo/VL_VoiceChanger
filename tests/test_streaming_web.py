@@ -47,7 +47,7 @@ class TestStreamingWeb(unittest.TestCase):
         self.manager._executor.shutdown(wait=True)
 
     def start(self, ws, **options):
-        ws.send_json({"type": "start", "model": "test", **options})
+        ws.send_json({"type": "start", "model": "test", "warmup": False, **options})
         ready = ws.receive_json()
         self.assertEqual(ready["type"], "ready", ready)
         self.assertEqual(ready["input_sr"], 16000)
@@ -293,6 +293,35 @@ class TestStreamingWeb(unittest.TestCase):
             finally:
                 release.set()
                 blocker.result(timeout=3)
+
+    def test_warmup_covers_first_and_steady_shapes_without_committing_audio(self):
+        # Context > hop exercises the full steady-state length immediately.
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, warmup=True, debug=True, hop=0.1, context=0.3, crossfade=0.02)
+            self.assertGreater(ready["warmup_ms"], 0)
+            self.assertEqual([call[0].size for call in self.fake.calls], [160 * 42, 160 * 72])
+            ws.send_bytes(np.ones(320, dtype="<f4").tobytes())
+            _, ack = self.receive(ws)
+            self.assertEqual(ack["input_frames"], 2)
+            self.assertEqual(ack["chunks"], 0)
+            self.assertEqual(ack["emitted_frames"], 0)
+            self.assertEqual(ack["max_inference_ms"], 0)
+            self.assertEqual(ack["stage_ms"], {})
+            self.assertEqual(ack["debug"]["request_seq"], 1)
+            ws.send_json({"type": "stop"})
+            output, done = self.receive(ws)
+            np.testing.assert_array_equal(output, 1)
+            self.assertEqual(done["input_frames"], 2)
+            self.assertEqual(done["chunks"], 1)
+
+    def test_bad_output_during_warmup_is_reported_before_ready(self):
+        with patch.object(self.fake, "convert_array", return_value=(np.empty(0), None)):
+            with self.client.websocket_connect("/api/stream") as ws:
+                ws.send_json({"model": "test"})
+                error = ws.receive_json()
+                self.assertEqual(error["type"], "error")
+                self.assertIn("converter returned", error["message"])
+        self.assertFalse(self.manager._stream_active)
 
 
 if __name__ == "__main__":
