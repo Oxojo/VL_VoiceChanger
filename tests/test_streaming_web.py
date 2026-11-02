@@ -323,6 +323,31 @@ class TestStreamingWeb(unittest.TestCase):
                 self.assertIn("converter returned", error["message"])
         self.assertFalse(self.manager._stream_active)
 
+    def test_low_latency_settings_preserve_frames_and_warm_both_windows(self):
+        with self.client.websocket_connect("/api/stream") as ws:
+            ready = self.start(ws, warmup=True, debug=True, hop=0.2, context=0.06, crossfade=0.02)
+            self.assertEqual(ready["buffer_ms"], 280)
+            self.assertEqual([call[0].size for call in self.fake.calls], [160 * 28, 160 * 34])
+            pieces = []
+            for i in range(40):
+                ws.send_bytes(np.ones(320, dtype="<f4").tobytes())
+                output, ack = self.receive(ws)
+                pieces.append(output)
+                if i < 13:
+                    self.assertEqual(output.size, 0)
+                if i == 13:
+                    self.assertEqual(ack["emitted_frames"], 20)
+                    self.assertEqual(output.size, 9600)
+            ws.send_json({"type": "stop"})
+            output, done = self.receive(ws)
+            pieces.append(output)
+            result = np.concatenate(pieces)
+            self.assertEqual(result.size, 80 * 480)
+            self.assertEqual(done["input_frames"], 80)
+            self.assertEqual(done["emitted_frames"], 80)
+            self.assertEqual(done["chunks"], 4)
+            np.testing.assert_array_equal(result, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

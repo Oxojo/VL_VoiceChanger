@@ -323,6 +323,33 @@ class BrowserStreamingSmoke(unittest.TestCase):
         self.page.locator("#liveStopBtn").click()
         self.wait_stopped()
 
+    def test_low_latency_preset_reduces_input_accumulation(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("low")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.2")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.06")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.02")
+        self.assertTrue(self.page.locator("#context").evaluate("e => e.validity.valid"))
+        self.page.locator("#liveDebug").check()
+        self.start()
+        self.page.wait_for_function("document.getElementById('debugTotal').textContent.includes('ms')")
+        self.assertTrue(self.page.locator("#streamPreset").is_disabled())
+        self.assertIn("入力蓄積 280 ms", self.page.locator("#liveBuffer").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertEqual(report["settings"]["client_preset"], "low")
+        self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 280, places=3)
+        self.page.locator("#streamPreset").select_option("balanced")
+        self.assertEqual(self.page.locator("#hop").input_value(), "0.5")
+        self.assertEqual(self.page.locator("#context").input_value(), "0.15")
+        self.assertEqual(self.page.locator("#crossfade").input_value(), "0.05")
+        self.page.locator("#context").fill("0.1")
+        self.assertEqual(self.page.locator("#streamPreset").input_value(), "custom")
+
 
 if __name__ == "__main__":
     unittest.main()

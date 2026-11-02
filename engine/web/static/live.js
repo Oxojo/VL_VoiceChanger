@@ -5,6 +5,19 @@ const $ = (id) => document.getElementById(id);
 const MAX_PENDING_SAMPLES = 32000; // two seconds, including the in-flight packet
 let session = null;
 let lastDebug = null;
+const STREAM_PRESETS = {
+  balanced: { hop: "0.5", context: "0.15", crossfade: "0.05" },
+  low: { hop: "0.2", context: "0.06", crossfade: "0.02" },
+};
+
+function showPresetHint() {
+  const name = $("streamPreset").value;
+  $("streamPresetHint").textContent = name === "low"
+    ? "hop 200 / context 60 / crossfade 20 ms。推論回数は毎秒5回になります。途切れや音質を確認し、追いつかない場合は従来設定へ戻してください。"
+    : name === "balanced"
+      ? "hop 500 / context 150 / crossfade 50 ms。現在の設定を基準に比較できます。"
+      : "下の hop / context / crossfade を使用します。確定した入力蓄積は開始後に表示します。";
+}
 
 function renderDebug(debug, force = false) {
   const now = performance.now();
@@ -60,7 +73,7 @@ function updateAvailability() {
 function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
-    "#modelSelect, #deviceSelect, #ortDevice, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
+    "#modelSelect, #deviceSelect, #ortDevice, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
     "#speaker, #seed, #hop, #context, #crossfade, #liveDebug, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
@@ -118,7 +131,7 @@ class LiveSession {
           context: Number($("context").value), crossfade: Number($("crossfade").value),
           denoise: Number($("denoise").value), dehum: Number($("dehum").value),
         };
-        if (this.debug) this.debug.settings = settings;
+        if (this.debug) this.debug.settings = { ...settings, client_preset: $("streamPreset").value };
         this.ws.send(JSON.stringify(settings));
       };
       this.ws.onmessage = (event) => {
@@ -369,6 +382,23 @@ $("liveStopBtn").addEventListener("click", () => {
   else session?.stop();
 });
 $("modelSelect").addEventListener("change", updateAvailability);
+$("streamPreset").addEventListener("change", () => {
+  const preset = STREAM_PRESETS[$("streamPreset").value];
+  if (preset) {
+    for (const [name, value] of Object.entries(preset)) $(name).value = value;
+    const mode = document.querySelector('input[name="mode"][value="chunk"]');
+    mode.checked = true;
+    mode.dispatchEvent(new Event("change"));
+  }
+  showPresetHint();
+});
+for (const name of ["hop", "context", "crossfade"]) {
+  $(name).addEventListener("input", () => {
+    $("streamPreset").value = "custom";
+    showPresetHint();
+  });
+}
+showPresetHint();
 window.addEventListener("vlvc-models-ready", updateAvailability);
 window.addEventListener("pagehide", () => session?.dispose("停止しました"));
 $("liveDebug").addEventListener("change", () => $("debugPanel").classList.toggle("hidden", !$("liveDebug").checked));

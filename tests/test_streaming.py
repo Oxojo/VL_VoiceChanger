@@ -172,7 +172,7 @@ class TestStreamingChunkedConverter(unittest.TestCase):
         from engine.realtime import ChunkedConverter
 
         for frames in (1, 5, 19, 20, 21, 23, 39, 40, 41, 44, 60, 61, 100):
-            for fade in (0, 0.04, 0.23):
+            for fade in (0, 0.02, 0.04, 0.23):
                 with self.subTest(frames=frames, fade=fade):
                     cfg = ChunkConfig(hop_seconds=0.2, context_seconds=0.06, crossfade_seconds=fade)
                     audio = np.zeros(FRAME * frames, dtype=np.float32)
