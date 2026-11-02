@@ -172,7 +172,8 @@ function renderInput(blob, samples, name, info, uploadName = "input.wav") {
   state.inputUrl = URL.createObjectURL(blob);
   player.src = state.inputUrl;
   player.classList.remove("hidden");
-  $("convertBtn").disabled = false;
+  $("convertBtn").disabled = document.body.dataset.streaming === "true";
+  if (document.body.dataset.streaming === "true") $("convertBtn").dataset.liveDisabled = "false";
   $("cleanBtn").disabled = false;
   $("convertHint").textContent = "変換できます";
 }
@@ -277,6 +278,7 @@ function revertInput() {
 
 // ------------------------------------------------------------------ 録音
 async function startRecording() {
+  if (document.body.dataset.streaming === "true") return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast("このブラウザはマイク録音に対応していません");
     return;
@@ -340,6 +342,7 @@ function collectForm() {
   form.append("audio", state.wavBlob, state.uploadName);
   form.append("model", $("modelSelect").value);
   form.append("device", $("deviceSelect").value);
+  form.append("ort_cuda", String($("ortDevice").value === "cuda"));
   form.append("pitch", $("pitch").value);
   form.append("speaker", $("speaker").value || "0");
   form.append("rms_mix", $("rmsMix").value);
@@ -356,11 +359,13 @@ function collectForm() {
 }
 
 async function startConvert() {
+  if (document.body.dataset.streaming === "true") return;
   if (!state.wavBlob) {
     toast("先に音声を選ぶか録音してください");
     return;
   }
   $("convertBtn").disabled = true;
+  document.body.dataset.converting = "true";
   $("cancelBtn").classList.remove("hidden");
   $("idlePanel").classList.add("hidden");
   $("resultPanel").classList.add("hidden");
@@ -410,6 +415,7 @@ function pollJob(jobId) {
 }
 
 function failJob(message) {
+  document.body.dataset.converting = "false";
   $("progressPanel").classList.add("hidden");
   $("errorBox").textContent = message;
   $("errorBox").classList.remove("hidden");
@@ -420,6 +426,7 @@ function failJob(message) {
 }
 
 async function finishJob(job) {
+  document.body.dataset.converting = "false";
   $("convertBtn").disabled = false;
   $("cancelBtn").classList.add("hidden");
   $("progressPanel").classList.add("hidden");
@@ -478,6 +485,7 @@ function renderMetrics(job) {
     add("ノイズ除去", `強さ ${fmt(job.request.denoise, 2)}${hum}`);
   }
   add("デバイス", job.request.device.toUpperCase());
+  add("特徴抽出", job.request.ort_cuda ? "CUDA 優先" : "CPU");
 
   $("metricsBody").innerHTML = rows.join("");
 }
@@ -541,6 +549,9 @@ async function init() {
     }
     $("deviceSelect").value = "auto";
     $("deviceSelect").title = `torch ${health.torch}`;
+    $("ortHint").textContent = health.ort_cuda_available
+      ? "ONNX CUDA 版を検出しました。開始時に両特徴抽出器の CUDA 利用可否を確認します。"
+      : "特徴抽出の GPU 化には、対応する onnxruntime-gpu と CUDA / cuDNN が必要です。";
   } catch (_) {
     $("healthBadge").textContent = "サーバーに接続できません";
     return;
@@ -564,6 +575,7 @@ async function init() {
       } catch (_) { /* 詳細が取れなくても変換はできる */ }
     });
     if (models.length) select.dispatchEvent(new Event("change"));
+    window.dispatchEvent(new Event("vlvc-models-ready"));
   } catch (err) {
     toast(`モデル一覧を取得できません: ${err.message}`);
   }

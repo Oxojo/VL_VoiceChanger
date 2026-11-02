@@ -33,4 +33,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4)"
 
 # 複数 worker はジョブ履歴・モデルキャッシュを共有しないため使わない。
-CMD ["python", "-m", "uvicorn", "engine.web.server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+CMD ["python", "-m", "uvicorn", "engine.web.server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--ws-max-size", "6400", "--ws-max-queue", "4"]
