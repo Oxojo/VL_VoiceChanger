@@ -57,7 +57,7 @@ class StreamRequest(BaseModel):
             raise ValueError("device は auto / cpu / cuda を選んでください")
         device = self.device
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cpu" if self.backend == "llvc" else ("cuda" if torch.cuda.is_available() else "cpu")
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA を利用できません。CPU を選んでください")
         if self.backend == "llvc":
@@ -168,6 +168,7 @@ def register_stream_routes(app, manager) -> None:
                 "backend": req.backend,
                 "runtime": getattr(stream, "runtime_name", None),
                 "runtime_validation_max_error": getattr(stream, "validation_max_error", None),
+                "preflight": getattr(stream, "preflight", None),
                 "feature_providers": feature_providers(stream.converter) if req.backend == "rvc" else {},
                 "playback_lead_ms": 15 if req.backend == "llvc" else 50,
                 "warmup_ms": stream.warmup_seconds * 1000,

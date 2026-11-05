@@ -27,6 +27,7 @@ class LLVCStream:
         self.runtime = runtime or model
         self.runtime_name = getattr(runtime, "name", f"PyTorch {next(model.parameters()).device.type.upper()}")
         self.validation_max_error = getattr(runtime, "validation_max_error", None)
+        self.preflight = None
         self.device = next(model.parameters()).device
         self.chunk_samples = model.L * model.dec_chunk_size
         self.hop_frames = self.chunk_samples / 160
@@ -159,12 +160,55 @@ def load_stream(device, cache, warmup=True):
             stream.runtime = model._llvc_cpu_runtime
             stream.runtime_name = stream.runtime.name
             stream.validation_max_error = stream.runtime.validation_max_error
+        elif device.startswith("cuda"):
+            from .cuda import prepare_cuda_runtime
+            # Graph outputs have persistent addresses and are session-owned.
+            # Capture a fresh runner, never cache/reuse it between sessions.
+            stream.runtime = prepare_cuda_runtime(cache[key])
+            stream.runtime_name = stream.runtime.name
+            stream.validation_max_error = stream.runtime.validation_max_error
         if warmup:
             start = time.perf_counter()
             stream.push(np.zeros(stream.chunk_samples * 3 + stream.model.L, dtype=np.float32))
             stream.reset()
+            if device.startswith("cuda"):
+                stream.preflight = check_realtime(stream)
             stream.warmup_seconds = time.perf_counter() - start
         return stream
     except Exception:
         stream.close()
         raise
+
+
+def check_realtime(stream, packets=24):
+    """Measure warmed fixed work before microphone capture; do not grow queues.
+
+    This is a startup estimate with silent PCM, not a physical latency test.
+    Clear state/statistics on success AND rejection. Missing runtime capacity is
+    reported before accepting live audio rather than accumulating seconds.
+    """
+    if packets < 1:
+        raise ValueError('packets must be positive')
+    stream.reset()
+    try:
+        packet = np.zeros(320, dtype=np.float32)
+        started = time.perf_counter()
+        for _ in range(packets):
+            stream.push(packet)
+        stream.flush()  # include the final incomplete chunk in the capacity estimate
+        elapsed = time.perf_counter() - started
+        durations = np.asarray(stream.stats.latencies, dtype=np.float64) * 1000
+        report = {
+            'runtime': stream.runtime_name, 'input_ms': packets * 20,
+            'wall_rtf': elapsed / (packets * .02),
+            'inference_rtf': stream.stats.rtf,
+            'step_mean_ms': float(durations.mean()) if durations.size else None,
+            'step_p95_ms': float(np.percentile(durations, 95)) if durations.size else None,
+            'packet_mean_ms': elapsed * 1000 / packets,
+        }
+        if report['wall_rtf'] >= 1:
+            raise ValueError(f"LLVCのGPU処理が入力に追いつきません（開始前計測RTF {report['wall_rtf']:.2f}）。"
+                             'マイクは開始していません。デバイスをCPUにしてONNX Runtime経路を使用してください')
+        return report
+    finally:
+        stream.reset()

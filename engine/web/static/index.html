@@ -26,7 +26,7 @@
         <select id="streamBackend"><option value="rvc">RVC（登録モデルの声）</option><option value="llvc">LLVC（低遅延・配布モデルの固定の声）</option></select>
       </label>
       <div id="llvcSetup" hidden>
-        <p>LLVCはStreamVCとは別方式です。RVCモデル・ピッチ・話者・hop設定は使いません。Voice Mixingは未対応です。</p>
+        <p>LLVCは自動選択ではCPUを使います。GPUがCPUより遅い場合があります。LLVCはStreamVCとは別方式です。RVCモデル・ピッチ・話者・hop設定は使いません。Voice Mixingは未対応です。</p>
         <p><a href="https://huggingface.co/KoeAI/llvc" target="_blank" rel="noopener">モデル配布元</a>から取得します。初回はダウンロードが必要です。ヘッドホンを使用してください。</p>
         <button id="llvcInstall" class="ghost" type="button">LLVCモデルを取得</button>
         <p id="llvcStatus" role="status" aria-live="polite">モデルの状態を確認中…</p>
@@ -100,7 +100,7 @@
         </label>
         <label class="field">デバイス
           <select id="deviceSelect">
-            <option value="auto">自動（GPU があれば使う）</option>
+            <option value="auto">自動（変換方式に合わせて選択）</option>
             <option value="cuda">CUDA（GPU）</option>
             <option value="cpu">CPU</option>
           </select>

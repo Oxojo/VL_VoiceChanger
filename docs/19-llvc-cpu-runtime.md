@@ -6,7 +6,7 @@ CPUで「入力に追いつかない」と停止する報告を受け、同じ�
 
 ## 変更点
 
-- CPUはONNX RuntimeのCPUExecutionProvider・FP32・1スレッドで実行する。CUDA選択はPyTorchのまま。
+- CPUはONNX RuntimeのCPUExecutionProvider・FP32・1スレッドで実行する。CUDA選択は[CUDA Graphの試験対応](20-llvc-cuda-graph.md)を参照。
 - encoderの状態を各層で大きなバッファへ書き戻す実装を、一度だけ連結して返す形へ変更した。
   ONNX変換時の大きなScatterNDコピーを削減する。元の更新手順とビット単位で一致することをテストした。
 - 学習済み重み・ネットワーク構造・内部13ms・入力送信20ms・再生クッション15msを維持する。

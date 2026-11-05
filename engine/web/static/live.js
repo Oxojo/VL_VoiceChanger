@@ -172,7 +172,7 @@ class LiveSession {
               this.debug.settings = { ...this.debug.settings, framing: message.debug,
                 output_sr: message.output_sr, warmup_ms: message.warmup_ms,
                 feature_cache_config: message.feature_cache, runtime: message.runtime,
-                runtime_validation_max_error: message.runtime_validation_max_error };
+                runtime_validation_max_error: message.runtime_validation_max_error, preflight: message.preflight };
               this.debug.device(this.context);
               renderDebug(this.debug, true);
             }
@@ -180,6 +180,9 @@ class LiveSession {
             $("liveProviders").textContent = message.backend === "llvc" ? `LLVC: ${message.runtime || "実行方式未取得"}` : Object.entries(message.feature_providers || {})
               .map(([name, providers]) => `${name}: ${providers[0] === "CUDAExecutionProvider" ? "CUDA 優先" : "CPU"}`)
               .join(" / ");
+            if (message.preflight) {
+              $("liveProviders").textContent += ` / 開始前処理RTF ${message.preflight.wall_rtf.toFixed(2)}`;
+            }
             clearTimeout(this.timeout);
             resolve();
           } else if (message.type === "ack") {

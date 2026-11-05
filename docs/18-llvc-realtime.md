@@ -102,3 +102,9 @@ CPU向けに[FP32 ONNX Runtimeでの高速化](19-llvc-cpu-runtime.md)を追加�
 開始後の実行方式が **LLVC: ONNX Runtime CPU / FP32** と表示されることを確認する。
 処理区間13ms・入力送信20ms・再生クッション15ms・待ち行列上限は変えていない。
 継続して停止する場合、debug JSONの`settings.runtime`、推論RTF・推論時間・ACK往復・入力待ちを確認する。
+
+## GPUで処理が追いつかない場合
+
+[提供ログの解析とCUDA Graphの試験対応](20-llvc-cuda-graph.md)を参照。
+LLVCの「自動」はCPU ONNXを優先する。CUDA明示選択では、マイク開始前にgraphの数値検証と容量計測を行う。
+このクラウドにはGPUがなく、実機での動作・速度は未検証。
