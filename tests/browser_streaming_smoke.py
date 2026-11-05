@@ -68,12 +68,17 @@ def serve_fixture(port):
     from engine.web import llvc as llvc_routes
     from engine.llvc import streaming as llvc_backend
     llvc_installed = {"value": False}
-    llvc_routes.model_status = lambda: {"installed": llvc_installed["value"]}
+    llvc_routes.model_status = lambda: {"installed": llvc_installed["value"], "voices": [
+        {"id":"llvc-default","name":"Default fixture","installed":llvc_installed["value"]},
+        {"id":"llvc:test-trained","name":"Trained voice fixture","installed":llvc_installed["value"]},
+    ]}
     def install_llvc_fixture():
         llvc_installed["value"] = True
         return {"test_only_untrained": True}
     llvc_routes.install_checkpoint = install_llvc_fixture
-    def untrained_llvc_fixture(device, cache, warmup=True):
+    def untrained_llvc_fixture(device, cache, warmup=True, model_id="llvc-default"):
+        if model_id not in {"llvc-default", "llvc:test-trained"}:
+            raise ValueError("unknown fixture voice")
         if "test_only_untrained" not in cache:
             import json
             import torch
@@ -148,6 +153,7 @@ class BrowserStreamingSmoke(unittest.TestCase):
             page.select_option("#streamBackend", "llvc")
             page.click("#llvcInstall")
             page.wait_for_function("!document.querySelector('#liveStartBtn').disabled")
+            page.select_option("#llvcVoice", "llvc:test-trained")
             page.check("#liveDebug")
             page.click("#liveStartBtn")
             page.wait_for_function("document.querySelector('#liveMetrics').textContent.includes('出力')", timeout=30000)
@@ -156,6 +162,7 @@ class BrowserStreamingSmoke(unittest.TestCase):
                 page.click("#debugExport")
             report = json.loads(Path(download.value.path()).read_text())
             self.assertEqual(report["settings"]["backend"], "llvc")
+            self.assertEqual(report["settings"]["model"], "llvc:test-trained")
             self.assertEqual(report["settings"]["runtime"], "ONNX Runtime CPU / FP32")
             self.assertLess(report["settings"]["runtime_validation_max_error"], 1e-4)
             self.assertEqual(report["settings"]["framing"]["hop_ms"], 13)

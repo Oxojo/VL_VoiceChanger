@@ -126,12 +126,12 @@ class LLVCStream:
         return result
 
 
-def load_stream(device, cache, warmup=True):
-    checkpoint = assets.CHECKPOINT
+def load_stream(device, cache, warmup=True, model_id="llvc-default"):
+    checkpoint = assets.resolve_voice(model_id)
     if not checkpoint.is_file():
         raise ValueError('LLVCモデルがありません。「LLVCモデルを取得」を実行してください')
     stat = checkpoint.stat()
-    key = (device, stat.st_mtime_ns, stat.st_size)
+    key = (device, str(checkpoint.resolve()), stat.st_mtime_ns, stat.st_size)
     if key not in cache:
         config = json.loads(Path(__file__).with_name('config.json').read_text(encoding='utf-8'))
         with torch.random.fork_rng(devices=[]):

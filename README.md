@@ -82,6 +82,8 @@ RVCではモデルと ONNX が必要。ヘッドホンを使用し、ノイズ�
 「変換方式 → LLVC」では、別の学習済み配布モデルを使って低遅延のマイク変換を試せる。
 初回は「LLVCモデルを取得」を押す。RVCモデルやONNXは不要。
 [導入・制約・検証状況](docs/18-llvc-realtime.md)。
+既存RVCの声は[LLVCへの追加学習手順](docs/21-llvc-distillation.md)でモデルを作り、
+「LLVCの声」から選択できる（試験・本データでの声質は未検証）。
 「特徴抽出の高速化 → GPU / CUDA（試験）」で、合成に加えてピッチ推定・音声特徴抽出も
 GPU 化できる。対応する ONNX Runtime GPU が必要。
 [導入・比較手順](docs/13-web-onnx-cuda.md)。

@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--download', action='store_true')
     parser.add_argument('--input', type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--model', default='llvc-default', help='LLVC voice ID, e.g. llvc:my-voice')
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
     args = parser.parse_args()
     if not args.download and args.input is None:
@@ -30,7 +31,7 @@ def main():
     audio = load_mono(args.input, 16000)
     if not audio.size:
         parser.error("入力音声が空です")
-    stream = load_stream(args.device, {})
+    stream = load_stream(args.device, {}, model_id=args.model)
     outputs = []
     started = time.perf_counter()
     try:

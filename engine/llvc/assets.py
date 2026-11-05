@@ -62,4 +62,35 @@ def install_checkpoint():
 def model_status():
     return {'installed': CHECKPOINT.is_file(), 'checkpoint': 'models/llvc/G_500000.pth',
             'source': f'https://huggingface.co/{MODEL_REPO}', 'backend': 'llvc',
-            'target': 'LLVC配布モデルの固定ターゲット声', 'sample_rate': 16000}
+            'target': '選択したLLVCモデルの固定ターゲット声', 'sample_rate': 16000, 'voices': list_voices()}
+
+
+def resolve_voice(model_id='llvc-default'):
+    if model_id == 'llvc-default':
+        return CHECKPOINT
+    if not model_id.startswith('llvc:') or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}', model_id[5:]):
+        raise ValueError('LLVCの声IDが不正です')
+    root = (MODEL_DIR/'voices').resolve()
+    path = (root/model_id[5:]/'model.pth').resolve()
+    if root not in path.parents or not path.is_file():
+        raise ValueError('選択したLLVCの声が見つかりません')
+    return path
+
+
+def list_voices():
+    voices = [{'id': 'llvc-default', 'name': 'LLVC配布モデルの声', 'installed': CHECKPOINT.is_file()}]
+    root = MODEL_DIR/'voices'
+    if root.is_dir():
+        for directory in sorted(root.iterdir()):
+            if not directory.is_dir() or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}', directory.name):
+                continue
+            try:
+                resolve_voice('llvc:'+directory.name)
+                metadata = json.loads((directory/'voice.json').read_text(encoding='utf-8'))
+                if not isinstance(metadata,dict) or not isinstance(metadata.get('name'),str) or not metadata['name']:
+                    continue
+                voices.append({'id': 'llvc:'+directory.name, 'name': str(metadata['name'])[:80]+'（追加学習・試験）',
+                               'installed': True, 'step': metadata.get('step'), 'experimental': True})
+            except (OSError, ValueError, KeyError):
+                continue
+    return voices

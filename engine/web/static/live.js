@@ -7,6 +7,7 @@ let session = null;
 let lastDebug = null;
 let llvcInstalled = false;
 let llvcInstalling = false;
+let llvcVoices = [];
 const isLLVC = () => $("streamBackend").value === "llvc";
 const canStart = () => isLLVC() ? llvcInstalled && !llvcInstalling : Boolean($("modelSelect").value);
 const STREAM_PRESETS = {
@@ -83,7 +84,7 @@ function updateAvailability() {
 function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
-    "#streamBackend, #llvcInstall, #modelSelect, #deviceSelect, #ortDevice, #featureCache, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
+    "#streamBackend, #llvcInstall, #llvcVoice, #llvcRefresh, #modelSelect, #deviceSelect, #ortDevice, #featureCache, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
     "#speaker, #seed, #hop, #context, #crossfade, #liveDebug, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
@@ -133,7 +134,7 @@ class LiveSession {
       this.ws.onopen = () => {
         if (this.closed) return;
         const settings = isLLVC() ? {
-          type: "start", backend: "llvc", model: "llvc-default",
+          type: "start", backend: "llvc", model: $("llvcVoice").value,
           device: $("deviceSelect").value, debug: Boolean(this.debug),
         } : {
           type: "start", model: $("modelSelect").value, device: $("deviceSelect").value,
@@ -452,18 +453,25 @@ async function refreshLLVC() {
     const response = await fetch('/api/llvc');
     if (!response.ok) throw new Error('モデル状態を確認できません');
     const data = await response.json();
-    llvcInstalled = data.installed;
-    $("llvcStatus").textContent = llvcInstalled
-      ? 'モデル配置済み。「マイク変換を開始」で試せます。100ms以下の達成は未検証です。'
-      : 'LLVCモデルが必要です。「LLVCモデルを取得」を押してください。';
-  } catch (error) { $("llvcStatus").textContent = error.message; }
+    const selected = $("llvcVoice").value;
+    llvcVoices = data.voices || [{id: 'llvc-default', name: 'LLVC配布モデルの声', installed: data.installed}];
+    $("llvcVoice").replaceChildren();
+    for (const voice of llvcVoices) {
+      const option = document.createElement('option');
+      option.value = voice.id; option.textContent = voice.name; option.disabled = !voice.installed;
+      $("llvcVoice").append(option);
+    }
+    $("llvcVoice").value = llvcVoices.find(v => v.id === selected && v.installed)?.id
+      || llvcVoices.find(v => v.installed)?.id || 'llvc-default';
+    selectLLVCVoice();
+  } catch (error) { llvcInstalled = false; $("llvcStatus").textContent = error.message; }
   updateAvailability();
 }
 $("streamBackend").addEventListener('change', () => {
   $("llvcSetup").hidden = !isLLVC();
   $("streamPreset").disabled = isLLVC();
   $("streamPresetHint").textContent = isLLVC()
-    ? 'LLVCは内部13ms単位・入力パケット20ms。下のRVC専用設定は使いません。デバイスとdebugモードは共通です。'
+    ? 'LLVCは内部13ms単位・入力パケット20ms。LLVCの声とデバイス・debugモードを使用します。下のRVC専用設定は適用しません。'
     : '';
   if (!isLLVC()) showPresetHint();
   if (isLLVC()) { $("deviceSelect").value = 'cpu'; refreshLLVC(); }
@@ -484,3 +492,14 @@ $("llvcInstall").addEventListener('click', async () => {
   } catch (error) { $("llvcStatus").textContent = error.message; }
   finally { llvcInstalling = false; $("llvcInstall").disabled = Boolean(session); updateAvailability(); }
 });
+
+function selectLLVCVoice() {
+  const voice = llvcVoices.find(v => v.id === $("llvcVoice").value);
+  llvcInstalled = Boolean(voice?.installed);
+  $("llvcStatus").textContent = llvcInstalled
+    ? `${voice.name} を使用します。声の変更はマイク開始時に反映します。`
+    : '配布モデルを取得するか、追加学習した声を書き出して一覧を更新してください。';
+  updateAvailability();
+}
+$("llvcVoice").addEventListener('change', selectLLVCVoice);
+$("llvcRefresh").addEventListener('click', () => { if (!session) refreshLLVC(); });

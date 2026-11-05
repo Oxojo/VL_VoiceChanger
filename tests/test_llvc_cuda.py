@@ -27,7 +27,7 @@ class TestLLVCPreflight(unittest.TestCase):
         with patch('engine.web.stream.torch.cuda.is_available', return_value=True), \
              patch('engine.llvc.streaming.load_stream', return_value='sentinel') as load:
             self.assertEqual(request.build(manager), 'sentinel')
-            load.assert_called_once_with('cpu', manager._llvc_models, warmup=True)
+            load.assert_called_once_with('cpu', manager._llvc_models, warmup=True, model_id='llvc-default')
 
     def test_capacity_measurement_resets_audio_state_and_excludes_statistics(self):
         stream = LLVCStream(make_model())

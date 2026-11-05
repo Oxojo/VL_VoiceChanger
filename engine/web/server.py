@@ -77,6 +77,8 @@ def list_models() -> list[dict]:
         return []
     models = []
     for p in sorted(MODELS_DIR.rglob("*.pth")):
+        if (MODELS_DIR / "llvc") in p.parents:
+            continue
         models.append({"id": _model_id(p), "name": p.stem, "size_mb": round(p.stat().st_size / 1024 / 1024, 1)})
     return models
 
@@ -84,6 +86,8 @@ def list_models() -> list[dict]:
 def model_path(model_id: str) -> Path:
     """ID（models/ からの相対パス、拡張子なし）を実パスに解決する。"""
     candidate = (MODELS_DIR / f"{model_id}.pth").resolve()
+    if (MODELS_DIR / "llvc").resolve() in candidate.parents:
+        raise HTTPException(status_code=404, detail="LLVCモデルはLLVCの声一覧から選んでください")
     if MODELS_DIR.resolve() not in candidate.parents or not candidate.is_file():
         raise HTTPException(status_code=404, detail=f"モデルが見つかりません: {model_id}")
     return candidate

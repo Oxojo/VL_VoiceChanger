@@ -61,12 +61,12 @@ class StreamRequest(BaseModel):
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA を利用できません。CPU を選んでください")
         if self.backend == "llvc":
-            if (self.model != "llvc-default" or self.feature_cache or self.ort_cuda
+            if (self.feature_cache or self.ort_cuda
                     or self.pitch or self.speaker or self.denoise or self.dehum
                     or self.output_sr not in (0, 16000)):
-                raise ValueError("LLVCは配布モデル専用です。RVCモデル・ピッチ・話者・ONNX・特徴量キャッシュ等の設定は使えません")
+                raise ValueError("LLVCはLLVC用に学習した声を使います。RVCモデル・ピッチ・話者・ONNX・特徴量キャッシュ等の設定は直接使えません")
             from ..llvc.streaming import load_stream
-            return load_stream(device, manager._llvc_models, warmup=self.warmup)
+            return load_stream(device, manager._llvc_models, warmup=self.warmup, model_id=self.model)
         if self.denoise != 0 or self.dehum != 0:
             raise ValueError("ストリーミングではノイズ除去とハム除去を 0 にしてください")
         if self.output_sr and self.output_sr % 100:

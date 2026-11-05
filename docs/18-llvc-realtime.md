@@ -1,8 +1,8 @@
 # LLVCで単一ターゲットへの低遅延マイク変換を試す
 
 Voice Mixing計画の段階1として、[KoeAI/LLVC](https://github.com/KoeAI/LLVC) の推論コードを組み込んだ。
-これはStreamVCとは別のモデルで、LLVC配布checkpointの固定ターゲット声に変換する。
-Voice Mixing・任意のRVCモデル・話者参照音声・ピッチ変更には対応していない。
+これはStreamVCとは別のモデルで、配布checkpointでは固定ターゲット声に変換する。
+LLVC用に追加学習した声も選択できる。Voice Mixing・RVCモデルの直接読み込み・話者参照音声・ピッチ変更には対応していない。
 
 **本環境ではモデル配布先がネットワーク制限で403となり、公式学習済み重みでの実推論は未検証。**
 Web UIにマイク変換の経路を実装したが、音質・実モデルの速度・100ms以下の達成はまだ確認できていない。
@@ -108,3 +108,8 @@ CPU向けに[FP32 ONNX Runtimeでの高速化](19-llvc-cpu-runtime.md)を追加�
 [提供ログの解析とCUDA Graphの試験対応](20-llvc-cuda-graph.md)を参照。
 LLVCの「自動」はCPU ONNXを優先する。CUDA明示選択では、マイク開始前にgraphの数値検証と容量計測を行う。
 このクラウドにはGPUがなく、実機での動作・速度は未検証。
+
+## 既存RVCの声を使う
+
+RVCの`.pth`を直接指定する方法ではなく、[追加学習手順](21-llvc-distillation.md)でLLVC用の声モデルを作る。
+書き出したら「声一覧を更新」→「LLVCの声」で選択する。データ準備・学習は手元のCLIから行う。
