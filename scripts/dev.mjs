@@ -82,7 +82,7 @@ function prepare(python) {
 
 try {
   let python = findPython();
-  const probe = ["-c", "import torch, numpy, scipy, soundfile, onnxruntime, fastapi, uvicorn, multipart, websockets"];
+  const probe = ["-c", "import torch, numpy, scipy, soundfile, onnx, onnxruntime, fastapi, uvicorn, multipart, websockets"];
   if (setupOnly || run(python, probe).status !== 0) python = prepare(python);
   if (setupOnly) {
     console.log("Setup complete. Run npm run dev to open the Web UI.");

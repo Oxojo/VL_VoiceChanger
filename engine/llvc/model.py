@@ -120,7 +120,7 @@ class DilatedCausalConvEncoder(nn.Module):
                 Updated context buffer with output as the
                 last element.
         """
-        T = x.shape[-1]  # Sequence length
+        updated_context = []
 
         for i in range(self.num_layers):
             buf_start_idx = self.buf_indices[i]
@@ -130,14 +130,14 @@ class DilatedCausalConvEncoder(nn.Module):
             dcc_in = torch.cat(
                 (ctx_buf[..., buf_start_idx:buf_end_idx], x), dim=-1)
 
-            # Push current output to the context buffer
-            ctx_buf[..., buf_start_idx:buf_end_idx] = \
-                dcc_in[..., -self.buf_lengths[i]:]
+            # Assemble state once. Repeated in-place slice writes export as
+            # full-buffer ScatterND copies in ONNX (the buffer is ~1 MiB).
+            updated_context.append(dcc_in[..., -self.buf_lengths[i]:])
 
             # Residual connection
             x = x + self.dcc_layers[i](dcc_in)
 
-        return x, ctx_buf
+        return x, torch.cat(updated_context, dim=-1)
 
 
 class CausalTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):

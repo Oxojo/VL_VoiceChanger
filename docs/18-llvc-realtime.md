@@ -22,7 +22,7 @@ npm run dev
 4. ヘッドホンを使い、**マイク変換を開始**。変換音声を逐次再生する。
 5. 停止すると未処理の端数を変換・再生し、終了する。比較結果は診断JSONで保存できる。
 
-`npm run dev`で通常どおりPython/Web依存を準備する。LLVC推論専用の追加pipパッケージは不要。
+`npm run dev`で通常どおりPython/Web依存を準備する。必要な`torch` / `onnx`はengine依存として自動導入する。
 RVC用ONNX、SpeechBrain、fairseq、torchaudioはLLVC推論に使用しない。
 CPU推論はセッション中1スレッドにし、終了・切断時に元の設定へ戻す。CUDAにはCUDA版PyTorchが必要。
 
@@ -93,3 +93,12 @@ LLVC用ブラウザ試験は、セットアップ→マイク取得→WebSocket�
   `cdn-lfs-us-1.hf.co`、`cas-bridge.xethub.hf.co` を追加した。保存だけでは現在のネットワーク設定は変わらない。
   このクラウドで続きを検証するには、環境設定の変更案を確認・保存し、環境を公開した後、接続を再確認する。
   利用者の手元で通常のインターネット接続から試す場合、このクラウド設定の変更は必要ない。
+
+## CPUで「入力に追いつかない」と表示される場合
+
+CPU向けに[FP32 ONNX Runtimeでの高速化](19-llvc-cpu-runtime.md)を追加した。
+開発サーバーをCtrl+Cで止め、`git pull --ff-only` → `npm run dev`で起動し直して画面を更新する。
+既存のモデルを使うので、重みの再取得は不要。初回だけ、マイクを開く前にONNX生成と数値検証を行う。
+開始後の実行方式が **LLVC: ONNX Runtime CPU / FP32** と表示されることを確認する。
+処理区間13ms・入力送信20ms・再生クッション15ms・待ち行列上限は変えていない。
+継続して停止する場合、debug JSONの`settings.runtime`、推論RTF・推論時間・ACK往復・入力待ちを確認する。

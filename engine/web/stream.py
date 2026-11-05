@@ -166,6 +166,8 @@ def register_stream_routes(app, manager) -> None:
                 "max_seconds": MAX_STREAM_FRAMES / 100,
                 "buffer_ms": 20 if req.backend == "llvc" else (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
                 "backend": req.backend,
+                "runtime": getattr(stream, "runtime_name", None),
+                "runtime_validation_max_error": getattr(stream, "validation_max_error", None),
                 "feature_providers": feature_providers(stream.converter) if req.backend == "rvc" else {},
                 "playback_lead_ms": 15 if req.backend == "llvc" else 50,
                 "warmup_ms": stream.warmup_seconds * 1000,

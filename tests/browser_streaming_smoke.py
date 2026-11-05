@@ -80,7 +80,12 @@ def serve_fixture(port):
             torch.set_num_threads(1)
             config = json.loads((Path(__file__).resolve().parents[1] / "engine/llvc/config.json").read_text())
             cache["test_only_untrained"] = llvc_backend.Net(**config["model_params"]).eval()
-        return llvc_backend.LLVCStream(cache["test_only_untrained"])
+            from engine.llvc.cpu import prepare_cpu_runtime
+            with tempfile.TemporaryDirectory(prefix="llvc-browser-untrained-") as directory:
+                checkpoint = Path(directory)/"fixture.pth"
+                torch.save({"model": cache["test_only_untrained"].state_dict()}, checkpoint)
+                cache["test_only_runtime"] = prepare_cpu_runtime(cache["test_only_untrained"], checkpoint)
+        return llvc_backend.LLVCStream(cache["test_only_untrained"], cache["test_only_runtime"])
     llvc_backend.load_stream = untrained_llvc_fixture
 
     @server.app.get("/test/idle")
@@ -151,6 +156,8 @@ class BrowserStreamingSmoke(unittest.TestCase):
                 page.click("#debugExport")
             report = json.loads(Path(download.value.path()).read_text())
             self.assertEqual(report["settings"]["backend"], "llvc")
+            self.assertEqual(report["settings"]["runtime"], "ONNX Runtime CPU / FP32")
+            self.assertLess(report["settings"]["runtime_validation_max_error"], 1e-4)
             self.assertEqual(report["settings"]["framing"]["hop_ms"], 13)
             self.assertGreater(len(report["records"]), 0)
             page.click("#liveStopBtn")

@@ -110,6 +110,7 @@ class LiveSession {
     this.debug = $("liveDebug").checked ? new StreamDebug({}) : null;
     this.requestSeq = 0;
     this.captureOrigin = null;
+    this.lastStats = null;
   }
 
   async start() {
@@ -170,12 +171,13 @@ class LiveSession {
               if (!message.debug) throw new Error("サーバーが debug モードに対応していません");
               this.debug.settings = { ...this.debug.settings, framing: message.debug,
                 output_sr: message.output_sr, warmup_ms: message.warmup_ms,
-                feature_cache_config: message.feature_cache };
+                feature_cache_config: message.feature_cache, runtime: message.runtime,
+                runtime_validation_max_error: message.runtime_validation_max_error };
               this.debug.device(this.context);
               renderDebug(this.debug, true);
             }
             $("liveBuffer").textContent = `入力蓄積 ${message.buffer_ms} ms ＋ 推論・通信・再生時間`;
-            $("liveProviders").textContent = Object.entries(message.feature_providers || {})
+            $("liveProviders").textContent = message.backend === "llvc" ? `LLVC: ${message.runtime || "実行方式未取得"}` : Object.entries(message.feature_providers || {})
               .map(([name, providers]) => `${name}: ${providers[0] === "CUDAExecutionProvider" ? "CUDA 優先" : "CPU"}`)
               .join(" / ");
             clearTimeout(this.timeout);
@@ -234,7 +236,11 @@ class LiveSession {
         this.totalSamples += samples.length;
         this.pendingSamples += samples.length;
         if (this.pendingSamples > MAX_PENDING_SAMPLES) {
-          this.fail(new Error("変換が入力に追いつかないため停止しました。hop やデバイスを見直してください"));
+          const rtf = this.lastStats?.rtf;
+          const detail = Number.isFinite(rtf) ? `（推論RTF ${rtf.toFixed(2)}、送信待ち ${(this.pendingSamples / 16).toFixed(0)} ms）` : "";
+          this.fail(new Error(isLLVC()
+            ? `LLVCの処理が入力に追いつかないため停止しました${detail}。debugの診断JSONで推論時間と送信待ちを確認してください`
+            : "変換が入力に追いつかないため停止しました。hop やデバイスを見直してください"));
           return;
         }
         if (this.debug) {
@@ -291,6 +297,7 @@ class LiveSession {
   }
 
   stats(message) {
+    this.lastStats = message;
     const cache = message.feature_cache;
     const avoided = cache?.enabled && cache.requested_frames
       ? cache.avoided_frames * 100 / cache.requested_frames : 0;

@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-engine = ["torch>=2.6"]
+engine = ["torch>=2.6", "onnx>=1.17"]
 web = ["fastapi>=0.110", "uvicorn>=0.30", "python-multipart>=0.0.9", "websockets>=13"]
 test = ["httpx>=0.27"]
 

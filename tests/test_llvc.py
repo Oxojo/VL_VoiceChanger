@@ -117,6 +117,8 @@ class TestLLVCStream(unittest.TestCase):
                 previous_threads = torch.get_num_threads()
                 stream = load_stream('cpu', cache)
                 self.assertEqual(torch.get_num_threads(), 1)
+                self.assertEqual(stream.runtime_name, "ONNX Runtime CPU / FP32")
+                self.assertLess(stream.validation_max_error, 1e-4)
                 self.assertEqual(stream.stats.chunks, 0)  # warmup excluded
                 self.assertEqual(stream.received, 0)
                 self.assertGreater(stream.warmup_seconds, 0)

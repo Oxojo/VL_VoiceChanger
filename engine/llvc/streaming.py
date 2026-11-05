@@ -22,8 +22,11 @@ class LLVCStream:
     feature_cache = None
     fade_frames = 0
 
-    def __init__(self, model):
+    def __init__(self, model, runtime=None):
         self.model = model
+        self.runtime = runtime or model
+        self.runtime_name = getattr(runtime, "name", f"PyTorch {next(model.parameters()).device.type.upper()}")
+        self.validation_max_error = getattr(runtime, "validation_max_error", None)
         self.device = next(model.parameters()).device
         self.chunk_samples = model.L * model.dec_chunk_size
         self.hop_frames = self.chunk_samples / 160
@@ -58,7 +61,7 @@ class LLVCStream:
     def _step(self, body):
         packet = torch.from_numpy(np.concatenate((self.previous, body))).to(self.device)[None, None, :]
         start = time.perf_counter()
-        output, *states = self.model(packet, *self.buffers, self.pre_context, pad=False)
+        output, *states = self.runtime(packet, *self.buffers, self.pre_context, pad=False)
         audio = output.detach().cpu().numpy().reshape(-1).copy()
         elapsed = time.perf_counter() - start  # CPU copy synchronizes CUDA output.
         if audio.size != self.chunk_samples or not np.isfinite(audio).all():
@@ -148,6 +151,14 @@ def load_stream(device, cache, warmup=True):
         stream.restore_threads = torch.get_num_threads()
         torch.set_num_threads(1)
     try:
+        if device == "cpu":
+            from .cpu import prepare_cpu_runtime
+            model = cache[key]
+            if not hasattr(model, "_llvc_cpu_runtime"):
+                model._llvc_cpu_runtime = prepare_cpu_runtime(model, checkpoint)
+            stream.runtime = model._llvc_cpu_runtime
+            stream.runtime_name = stream.runtime.name
+            stream.validation_max_error = stream.runtime.validation_max_error
         if warmup:
             start = time.perf_counter()
             stream.push(np.zeros(stream.chunk_samples * 3 + stream.model.L, dtype=np.float32))
