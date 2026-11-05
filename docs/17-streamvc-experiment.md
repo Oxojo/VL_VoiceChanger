@@ -3,7 +3,7 @@
 添付論文 [StreamVC: Real-Time Low-Latency Voice Conversion, v1](https://arxiv.org/abs/2401.03078)
 を参考に、20 msごとに状態を引き継ぐニューラルコアを実装した。
 **未学習の計算実験であり、声質変換できるStreamVCバックエンドではない。**
-現在のWeb UIの変換やRVC設定には接続していない。
+Web UIには計測専用画面を用意した。RVCの音声変換設定には接続していない。
 
 ## RVCとの違いと期待できる改善
 
@@ -34,7 +34,7 @@ Pixel 7の単一CPUコア・XNNPACKでニューラル計算10.8 ms、合計70.8 
 実験ではside featuresを0にし、source/referenceには合成乱数を使用する。音声ファイルは出力しない。
 
 **未実装**: YIN・running F0 whitening、学習ラベル生成・GAN学習、論文の学習/出力遅延アラインメント、
-学習済み重みの形式/読み込み、録音・再生・Web UI接続。
+学習済み重みの形式/読み込み、録音・再生・音声変換としてのWeb UI接続。
 従ってこのコードの出力の音質やレイテンシを、論文のStreamVCのものとして評価できない。
 
 ## 実行
@@ -101,3 +101,26 @@ Python全124件: 成功123、スキップ1、失敗0。追加6件は、stride/�
 重み確保後、YIN/whiteningと学習アラインメントを揃え、一括/逐次の音質を比較する。
 次に実行バックエンドを最適化してp95が20 msを下回るか計測する。
 最後に専用backendとしてWeb UIへ接続し、debugのcapture→playback遅延と聴感を検証する。
+
+## Web UIで試す
+
+このブランチを取得し、通常どおり起動する:
+
+```bash
+git switch research/streamvc-stateful-probe
+git pull --ff-only
+npm run dev
+```
+
+トップ画面の「StreamVC 実験」リンク、または http://localhost:3000/streamvc を開く。
+CPUまたはCUDAとCPUスレッド数を選び「処理速度を計測する」を押す。RVCの登録モデルは不要。
+CUDA計測はCUDA版PyTorchとGPUが必要。ONNX Runtime CUDAは使わない。
+これは**処理速度の計測画面**で、StreamVCによる声質変換・マイク試聴の画面ではない。
+
+平均/p95・20 ms超過数・保持状態・一括処理との誤差を表示し、JSONを保存できる。
+計測は別Pythonプロセスで実行して終了時に解放する。最大120秒、同時に一つだけで、RVCの変換とも排他にする。
+画面を閉じても開始済み計測は終了またはタイムアウトまで継続する。
+
+追加APIテスト5件を含むPython全129件は成功128・スキップ1・失敗0。
+Chromiumからページ遷移→実際のCPU計測100フレーム→結果表示→JSON保存と、CUDA非対応時の表示・再試行を確認した。
+GPU実機・音声変換品質は未検証。

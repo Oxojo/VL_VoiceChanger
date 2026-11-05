@@ -37,6 +37,7 @@ from ..features.providers import ort_providers, verify_ort_cuda
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 from .stream import register_stream_routes
+from .streamvc import register_streamvc_routes
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODELS_DIR = REPO_ROOT / "models"
@@ -431,6 +432,8 @@ denoise_store = DenoiseStore()
 app = FastAPI(title="VL VoiceChanger", docs_url="/api/docs", redoc_url=None)
 
 register_stream_routes(app, manager)
+
+register_streamvc_routes(app, manager, STATIC_DIR)
 
 
 # ------------------------------------------------------------------ ルート
