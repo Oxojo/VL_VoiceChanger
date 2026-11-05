@@ -41,10 +41,11 @@ export class CaptureResampler {
 }
 
 export class StreamPlayer {
-  constructor(context, sampleRate, maxSeconds = 3) {
+  constructor(context, sampleRate, maxSeconds = 3, leadSeconds = 0.05) {
     this.context = context;
     this.sampleRate = sampleRate;
     this.maxSeconds = maxSeconds;
+    this.leadSeconds = leadSeconds;
     this.nextTime = 0;
     this.sources = new Set();
     this.underruns = 0;
@@ -62,7 +63,7 @@ export class StreamPlayer {
     }
     const now = this.context.currentTime;
     if (this.samples && this.nextTime < now) this.underruns += 1;
-    const start = this.samples && this.nextTime >= now ? this.nextTime : now + 0.05;
+    const start = this.samples && this.nextTime >= now ? this.nextTime : now + this.leadSeconds;
     const buffer = this.context.createBuffer(1, samples.length, this.sampleRate);
     buffer.copyToChannel(samples, 0);
     const source = this.context.createBufferSource();

@@ -30,6 +30,7 @@ vlvc = "vlvc.cli:main"
 include = ["engine*", "vlvc*"]
 
 [tool.setuptools.package-data]
+"engine.llvc" = ["config.json", "LICENSE"]
 "engine.web" = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]

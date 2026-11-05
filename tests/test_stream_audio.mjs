@@ -113,3 +113,13 @@ test("playback counts underruns and rejects excessive queued latency", () => {
   assert.equal(player.sources.size, 2);
   player.stop();
 });
+
+test("LLVC can use a 15ms playback cushion without changing RVC default", () => {
+  const context = fakeContext();
+  const player = new StreamPlayer(context, 16000, 3, .015);
+  player.enqueue(new Float32Array(208));
+  assert.equal(context.sources[0].startTime, 1.015);
+  context.currentTime = 1.02;
+  player.enqueue(new Float32Array(208));
+  assert(Math.abs(context.sources[1].startTime - 1.028) < 1e-9);
+});

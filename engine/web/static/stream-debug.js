@@ -32,7 +32,7 @@ export class StreamDebug {
       return;
     }
     if (Math.abs(output.firstSample / outputSr - server.output_start_frame / 100) > 1e-6
-        || output.samples !== server.output_frames * (outputSr / 100)) {
+        || Math.abs(output.samples - server.output_frames * (outputSr / 100)) > 1e-6) {
       throw new Error("debug 音声フレーム位置が一致しません");
     }
     const sourceTime = captureOrigin + server.output_start_frame / 100;

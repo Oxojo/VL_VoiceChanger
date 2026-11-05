@@ -7,6 +7,7 @@ import json
 import time
 from functools import partial
 from urllib.parse import urlsplit
+from typing import Literal
 
 import numpy as np
 import torch
@@ -27,6 +28,7 @@ class StreamRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     type: str = "start"
+    backend: Literal["rvc", "llvc"] = "rvc"
     model: str = Field(min_length=1, max_length=200)
     device: str = "auto"
     ort_cuda: bool = False
@@ -58,6 +60,13 @@ class StreamRequest(BaseModel):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA を利用できません。CPU を選んでください")
+        if self.backend == "llvc":
+            if (self.model != "llvc-default" or self.feature_cache or self.ort_cuda
+                    or self.pitch or self.speaker or self.denoise or self.dehum
+                    or self.output_sr not in (0, 16000)):
+                raise ValueError("LLVCは配布モデル専用です。RVCモデル・ピッチ・話者・ONNX・特徴量キャッシュ等の設定は使えません")
+            from ..llvc.streaming import load_stream
+            return load_stream(device, manager._llvc_models, warmup=self.warmup)
         if self.denoise != 0 or self.dehum != 0:
             raise ValueError("ストリーミングではノイズ除去とハム除去を 0 にしてください")
         if self.output_sr and self.output_sr % 100:
@@ -108,6 +117,8 @@ def register_stream_routes(app, manager) -> None:
             return
         await ws.accept()
         reserved = False
+        stream = None
+        build_task = None
         loop = asyncio.get_running_loop()
 
         async def work(func, *args, trace=None):
@@ -147,13 +158,16 @@ def register_stream_routes(app, manager) -> None:
             req = StreamRequest.model_validate_json(raw)
             manager.reserve_stream()
             reserved = True
-            stream = await work(req.build, manager)
+            build_task = asyncio.create_task(work(req.build, manager))
+            stream = await asyncio.shield(build_task)
             ready = {
                 "type": "ready", "input_sr": 16000, "output_sr": stream.output_sr,
                 "packet_samples": 320, "max_packet_samples": MAX_PACKET_SAMPLES,
                 "max_seconds": MAX_STREAM_FRAMES / 100,
-                "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
-                "feature_providers": feature_providers(stream.converter),
+                "buffer_ms": 20 if req.backend == "llvc" else (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
+                "backend": req.backend,
+                "feature_providers": feature_providers(stream.converter) if req.backend == "rvc" else {},
+                "playback_lead_ms": 15 if req.backend == "llvc" else 50,
                 "warmup_ms": stream.warmup_seconds * 1000,
                 "feature_cache": {"enabled": req.feature_cache,
                                   "guard_ms": stream.feature_cache.guard_frames * 10 if req.feature_cache else 0},
@@ -239,5 +253,25 @@ def register_stream_routes(app, manager) -> None:
             except (WebSocketDisconnect, RuntimeError, OSError):
                 pass
         finally:
-            if reserved:
+            if reserved and req.backend == "rvc":
                 manager.release_stream()
+            elif reserved:
+                async def cleanup():
+                    nonlocal stream
+                    # ASGI may cancel the connection during model loading or
+                    # disconnect. Keep the reservation until in-flight work and
+                    # same-worker cleanup finish, even after that cancellation.
+                    if stream is None and build_task is not None:
+                        try:
+                            stream = await build_task
+                        except Exception:
+                            pass
+                    def finish():
+                        try:
+                            close = getattr(stream, "close", None)
+                            if close is not None:
+                                close()
+                        finally:
+                            manager.release_stream()
+                    await work(finish)
+                await asyncio.shield(cleanup())

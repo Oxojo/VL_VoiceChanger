@@ -38,6 +38,7 @@ from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 from .stream import register_stream_routes
 from .streamvc import register_streamvc_routes
+from .llvc import register_llvc_routes
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODELS_DIR = REPO_ROOT / "models"
@@ -151,6 +152,7 @@ class JobManager:
         self._converters: dict[tuple[str, str, bool], VoiceConverter] = {}
         self._model_info: dict[str, dict] = {}
         self._stream_active = False
+        self._llvc_models = {}
         WORK_DIR.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------- 参照系
@@ -434,6 +436,7 @@ app = FastAPI(title="VL VoiceChanger", docs_url="/api/docs", redoc_url=None)
 register_stream_routes(app, manager)
 
 register_streamvc_routes(app, manager, STATIC_DIR)
+register_llvc_routes(app, manager)
 
 
 # ------------------------------------------------------------------ ルート

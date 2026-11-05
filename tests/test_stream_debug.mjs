@@ -96,3 +96,15 @@ test("sequence and frame mismatches cannot produce misleading debug results", ()
   assert.throws(() => debug.record(wrongFrame), /フレーム位置/);
   assert.equal(debug.records.length, 0);
 });
+
+test("LLVC 13ms outputs tolerate floating point 10ms-frame fractions", () => {
+  const input = event();
+  input.outputSr = 16000;
+  input.output.firstSample = 416;
+  input.output.samples = 208;
+  input.server.output_start_frame = 2.6;
+  input.server.output_frames = 3.9 - 2.6;
+  const debug = new StreamDebug({ backend: 'llvc' });
+  debug.record(input);
+  assert.equal(debug.records.length, 1);
+});

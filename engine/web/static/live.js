@@ -5,6 +5,10 @@ const $ = (id) => document.getElementById(id);
 const MAX_PENDING_SAMPLES = 32000; // two seconds, including the in-flight packet
 let session = null;
 let lastDebug = null;
+let llvcInstalled = false;
+let llvcInstalling = false;
+const isLLVC = () => $("streamBackend").value === "llvc";
+const canStart = () => isLLVC() ? llvcInstalled && !llvcInstalling : Boolean($("modelSelect").value);
 const STREAM_PRESETS = {
   balanced: { hop: "0.5", context: "0.15", crossfade: "0.05" },
   quality: { hop: "0.3", context: "0.15", crossfade: "0.05" },
@@ -32,7 +36,9 @@ function renderDebug(debug, force = false) {
   $("debugTotal").textContent = latest ? ms(latest.graph_capture_to_schedule_ms) : "出力待ち";
   const summary = debug.summary();
   const framing = debug.settings.framing;
-  $("debugConfig").textContent = framing
+  $("debugConfig").textContent = framing && debug.settings.backend === "llvc"
+    ? `LLVC: 内部処理 ${framing.hop_ms} ms / 先読み ${framing.context_ms} ms / 入力送信20 ms単位。蓄積の実測は下表で確認してください。`
+    : framing
     ? `設定値: hop ${framing.hop_ms} + context ${framing.context_ms} + crossfade ${framing.crossfade_ms} = ${framing.hop_ms + framing.context_ms + framing.crossfade_ms} ms（入力パケット20 msはこの蓄積に含む）`
     : "サーバーの設定値を待っています。";
   $("debugSummary").textContent = summary
@@ -47,7 +53,8 @@ function renderDebug(debug, force = false) {
     ["送信 → 音声応答", latest?.audio_response_ms, "実測。サーバー処理と通信を含む"],
     ["サーバー内の合計", latest?.server_ms, "実測。受信→音声送信完了。次の処理時間を含む"],
     ["サーバーの実行待ち", latest?.executor_wait_ms, "実測。ワーカーへの投入→実行開始"],
-    ["推論", latest?.inference_ms, "実測。下の4段階と一部前処理を含む"],
+    ["推論", latest?.inference_ms, "実測。下の処理段階を含む"],
+    ["　LLVC特徴抽出・合成", latest?.stage_ms.llvc, "LLVC推論の内数"],
     ["　ピッチ推定", latest?.stage_ms.f0, "推論の内数"],
     ["　音声特徴抽出", latest?.stage_ms.contentvec, "推論の内数"],
     ["　合成", latest?.stage_ms.synth, "推論の内数"],
@@ -70,13 +77,13 @@ function show(message, error = false) {
 }
 
 function updateAvailability() {
-  if (!session) $("liveStartBtn").disabled = !$("modelSelect").value;
+  if (!session) $("liveStartBtn").disabled = !canStart();
 }
 
 function lockSettings(active) {
   document.body.dataset.streaming = String(active);
   const controls = document.querySelectorAll(
-    "#modelSelect, #deviceSelect, #ortDevice, #featureCache, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
+    "#streamBackend, #llvcInstall, #modelSelect, #deviceSelect, #ortDevice, #featureCache, #streamPreset, #outputSr, #pitch, #rmsMix, #denoise, #dehum, " +
     "#speaker, #seed, #hop, #context, #crossfade, #liveDebug, #convertBtn, #recordBtn, input[name=mode]",
   );
   for (const el of controls) {
@@ -86,7 +93,7 @@ function lockSettings(active) {
       delete el.dataset.liveDisabled;
     }
   }
-  $("liveStartBtn").disabled = active || !$("modelSelect").value;
+  $("liveStartBtn").disabled = active || !canStart();
   $("liveStopBtn").disabled = !active;
 }
 
@@ -111,7 +118,7 @@ class LiveSession {
       throw new Error("マイクには localhost または HTTPS と対応ブラウザが必要です");
     }
     // Resume during the button gesture, before model loading or permission UI.
-    this.context = new AudioContext();
+    this.context = new AudioContext({ latencyHint: "interactive" });
     await this.context.resume();
     if (!this.context.audioWorklet) throw new Error("AudioWorklet 対応ブラウザを使ってください");
     await this.context.audioWorklet.addModule("/static/stream-capture.js");
@@ -124,7 +131,10 @@ class LiveSession {
       this.timeout = setTimeout(() => reject(new Error("モデルの準備がタイムアウトしました")), 120000);
       this.ws.onopen = () => {
         if (this.closed) return;
-        const settings = {
+        const settings = isLLVC() ? {
+          type: "start", backend: "llvc", model: "llvc-default",
+          device: $("deviceSelect").value, debug: Boolean(this.debug),
+        } : {
           type: "start", model: $("modelSelect").value, device: $("deviceSelect").value,
           ort_cuda: $("ortDevice").value === "cuda",
           feature_cache: $("featureCache").checked,
@@ -150,7 +160,7 @@ class LiveSession {
           const message = JSON.parse(event.data);
           if (message.type === "ready") {
             this.ready = true;
-            this.player = new StreamPlayer(this.context, message.output_sr);
+            this.player = new StreamPlayer(this.context, message.output_sr, 3, (message.playback_lead_ms ?? 50) / 1000);
             this.maxSamples = message.max_seconds * 16000;
             this.totalSamples = 0;
             $("liveWarmup").textContent = message.warmup_ms > 0
@@ -288,7 +298,7 @@ class LiveSession {
       ? `特徴量キャッシュ試験: 抽出入力を ${avoided.toFixed(1)}% 省略 / 再利用 ${cache.reused_frames} フレーム / 保持 ${cache.retained_frames} フレーム（境界${cache.guard_ms} ms）`
       : "";
     if (this.debug) this.debug.latestFeatureCache = cache;
-    const names = { f0: "ピッチ推定", contentvec: "音声特徴", synth: "合成", post: "後処理" };
+    const names = { llvc: "LLVC推論", f0: "ピッチ推定", contentvec: "音声特徴", synth: "合成", post: "後処理" };
     $("liveStages").textContent = Object.entries(message.stage_ms || {}).length
       ? "区間あたり平均: " + Object.entries(message.stage_ms)
         .map(([name, ms]) => `${names[name] || name} ${ms.toFixed(1)} ms`).join(" / ")
@@ -370,8 +380,8 @@ $("liveStartBtn").addEventListener("click", async () => {
     show("ファイル変換・録音を停止してから開始してください", true);
     return;
   }
-  if (!$("modelSelect").value) { show("先にモデルを選んでください", true); return; }
-  if (Number($("denoise").value) || Number($("dehum").value)) {
+  if (!canStart()) { show(isLLVC() ? "先にLLVCモデルを取得してください" : "先にモデルを選んでください", true); return; }
+  if (!isLLVC() && (Number($("denoise").value) || Number($("dehum").value))) {
     show("ノイズ除去とハム除去を 0 にしてから開始してください", true);
     return;
   }
@@ -426,3 +436,41 @@ $("debugExport").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 updateAvailability();
+
+async function refreshLLVC() {
+  try {
+    const response = await fetch('/api/llvc');
+    if (!response.ok) throw new Error('モデル状態を確認できません');
+    const data = await response.json();
+    llvcInstalled = data.installed;
+    $("llvcStatus").textContent = llvcInstalled
+      ? 'モデル配置済み。「マイク変換を開始」で試せます。100ms以下の達成は未検証です。'
+      : 'LLVCモデルが必要です。「LLVCモデルを取得」を押してください。';
+  } catch (error) { $("llvcStatus").textContent = error.message; }
+  updateAvailability();
+}
+$("streamBackend").addEventListener('change', () => {
+  $("llvcSetup").hidden = !isLLVC();
+  $("streamPreset").disabled = isLLVC();
+  $("streamPresetHint").textContent = isLLVC()
+    ? 'LLVCは内部13ms単位・入力パケット20ms。下のRVC専用設定は使いません。デバイスとdebugモードは共通です。'
+    : '';
+  if (!isLLVC()) showPresetHint();
+  if (isLLVC()) { $("deviceSelect").value = 'cpu'; refreshLLVC(); }
+  $("liveBuffer").textContent = isLLVC() ? '入力蓄積・実測処理時間は開始後に表示します。' : '設定されたRVCの入力蓄積に加え、推論・通信・再生に時間がかかります。';
+  updateAvailability();
+});
+$("llvcInstall").addEventListener('click', async () => {
+  if (session || llvcInstalling) return;
+  llvcInstalling = true;
+  $("llvcInstall").disabled = true;
+  $("llvcStatus").textContent = 'LLVCの公開モデルを取得中…（初回のみ・数分かかる場合があります）';
+  updateAvailability();
+  try {
+    const response = await fetch('/api/llvc/install', {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'モデル取得に失敗しました');
+    await refreshLLVC();
+  } catch (error) { $("llvcStatus").textContent = error.message; }
+  finally { llvcInstalling = false; $("llvcInstall").disabled = Boolean(session); updateAvailability(); }
+});
