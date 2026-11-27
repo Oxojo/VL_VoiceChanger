@@ -23,8 +23,10 @@ from .config import resolve_asset
 from .convert import ConvertOptions, VoiceConverter, interpolate_unvoiced
 from .denoise import noise_floor_db, reduce_noise
 from .features import RMVPE
+from .features.providers import feature_providers, ort_providers, verify_ort_cuda
 from .model import build_model, load_checkpoint
 from .realtime import ChunkConfig, ChunkedConverter
+from .streaming import StreamingChunkedConverter
 
 
 def _setup_console() -> None:
@@ -37,6 +39,18 @@ def _setup_console() -> None:
 
 def _fmt_seconds(sec: float) -> str:
     return f"{sec:.2f} 秒"
+
+
+def _ort_providers(enable_cuda: bool) -> list[str] | None:
+    """Select ONNX GPU execution explicitly instead of assuming torch CUDA implies it."""
+    return ort_providers(enable_cuda)
+
+
+def _verify_ort_cuda(converter: VoiceConverter, enable_cuda: bool) -> None:
+    verify_ort_cuda(converter, enable_cuda)
+    if enable_cuda:
+        for name, providers in feature_providers(converter).items():
+            print(f"  {name} ONNX providers: {providers}")
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:
@@ -70,7 +84,9 @@ def cmd_convert(args: argparse.Namespace) -> int:
         device=args.device,
         contentvec_path=args.contentvec,
         rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
     )
+    _verify_ort_cuda(conv, args.ort_cuda)
     print(
         f"  モデル: {conv.info.sample_rate} Hz / 話者数 {conv.info.speakers} / "
         f"読み込み {_fmt_seconds(conv.load_seconds)}"
@@ -189,7 +205,9 @@ def cmd_bench(args: argparse.Namespace) -> int:
         device=args.device,
         contentvec_path=args.contentvec,
         rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
     )
+    _verify_ort_cuda(conv, args.ort_cuda)
     wav = load_mono(args.input, SAMPLE_RATE)
     cfg = ChunkConfig(
         hop_seconds=args.hop,
@@ -228,6 +246,69 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stream_bench(args: argparse.Namespace) -> int:
+    """Feed a WAV as if it arrived in small microphone buffers.
+
+    This exercises incremental output and benchmarks the existing non-causal
+    RVC inference. It does NOT measure audio-device latency or claim that
+    conversion is fast enough for a live microphone.
+    """
+    if args.input_frame_ms <= 0:
+        raise ValueError("--input-frame-ms must be positive")
+    conv = VoiceConverter(
+        args.model,
+        device=args.device,
+        contentvec_path=args.contentvec,
+        rmvpe_path=args.rmvpe,
+        providers=_ort_providers(args.ort_cuda),
+    )
+    _verify_ort_cuda(conv, args.ort_cuda)
+    wav = load_mono(args.input, SAMPLE_RATE)
+    cfg = ChunkConfig(
+        hop_seconds=args.hop,
+        context_seconds=args.context,
+        crossfade_seconds=args.crossfade,
+        seed=None if args.seed < 0 else args.seed,
+    )
+    options = ConvertOptions(
+        pitch_shift=args.pitch,
+        speaker=args.speaker,
+        rms_mix=args.rms_mix,
+        seed=cfg.seed,
+        output_sr=args.output_sr,
+    )
+    stream = StreamingChunkedConverter(conv, cfg, options)
+    input_samples = max(1, int(round(args.input_frame_ms * SAMPLE_RATE / 1000)))
+    pieces = []
+    wall_start = time.perf_counter()
+    for pos in range(0, wav.size, input_samples):
+        pieces.append(stream.push(wav[pos : pos + input_samples]))
+    pieces.append(stream.flush())
+    wall_seconds = time.perf_counter() - wall_start
+    out = np.concatenate(pieces)
+    if args.output:
+        save_wav(args.output, out, stream.output_sr)
+        print(f"出力: {Path(args.output).resolve()}")
+
+    stats = stream.stats
+    # A minimum input accumulation/peek-ahead floor, not measured end-to-end latency.
+    min_buffer_ms = (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10
+    print(
+        f"逐次入力シミュレーション: {args.input_frame_ms:g} ms 単位 / "
+        f"hop {args.hop:g}s / context {args.context:g}s / crossfade {args.crossfade:g}s"
+    )
+    print(
+        f"  {stats.chunks} 区間 / 入力 {stats.input_seconds:.3f}s / "
+        f"確定出力 {stats.emitted_frames / 100:.3f}s / 最初の出力に必要な入力 {min_buffer_ms} ms"
+    )
+    print(
+        f"  推論の合計 {stats.process_seconds:.3f}s / 推論 RTF {stats.rtf:.3f} / "
+        f"最大推論 {stats.max_inference_ms:.1f} ms / 壁時計 {wall_seconds:.3f}s"
+    )
+    print("  注意: マイク/再生デバイス未接続。非因果 RVC の重複推論と I/O 遅延は残っています。")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """ブラウザ UI を起動する。"""
     try:
@@ -245,7 +326,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     url = f"http://{args.host}:{args.port}"
     print(f"ブラウザで {url} を開いてください（停止は Ctrl+C）")
-    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level, access_log=False)
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level,
+                access_log=False, ws_max_size=6400, ws_max_queue=4)
     return 0
 
 
@@ -272,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pc.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pc.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
+    pc.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
     pc.add_argument("--json", default=None, help="結果 JSON の保存先")
     pc.set_defaults(func=cmd_convert)
 
@@ -297,7 +380,27 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--device", default="cpu", help="torch のデバイス（cpu / cuda）")
     pb.add_argument("--contentvec", default=None, help="ContentVec の ONNX パス")
     pb.add_argument("--rmvpe", default=None, help="RMVPE の ONNX パス")
+    pb.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
     pb.set_defaults(func=cmd_bench)
+
+    pbs = sub.add_parser("stream-bench", help="逐次入力シミュレーション（低遅延推論ではない）")
+    pbs.add_argument("-m", "--model", required=True, help="RVC v2 の .pth")
+    pbs.add_argument("-i", "--input", required=True, help="入力 WAV")
+    pbs.add_argument("-o", "--output", default=None, help="出力 WAV")
+    pbs.add_argument("--input-frame-ms", type=float, default=20, help="模擬マイク入力の到着単位（ms）")
+    pbs.add_argument("--hop", type=float, default=0.5, help="1 回で確定する音声の長さ（秒）")
+    pbs.add_argument("--context", type=float, default=0.15, help="前後に必要な文脈（秒）")
+    pbs.add_argument("--crossfade", type=float, default=0.05, help="境界のクロスフェード（秒）")
+    pbs.add_argument("--pitch", type=int, default=0)
+    pbs.add_argument("--speaker", type=int, default=0)
+    pbs.add_argument("--rms-mix", type=float, default=0.25)
+    pbs.add_argument("--seed", type=int, default=1234)
+    pbs.add_argument("--output-sr", type=int, default=None)
+    pbs.add_argument("--device", default="cpu")
+    pbs.add_argument("--contentvec", default=None)
+    pbs.add_argument("--rmvpe", default=None)
+    pbs.add_argument("--ort-cuda", action="store_true", help="ContentVec / RMVPE を ONNX CUDA で実行（要 onnxruntime-gpu）")
+    pbs.set_defaults(func=cmd_stream_bench)
 
     pn = sub.add_parser("denoise", help="ノイズ除去だけを行う（変換なし）")
     pn.add_argument("-i", "--input", required=True, help="入力 WAV")

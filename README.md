@@ -77,8 +77,53 @@ python -m vlvc serve
 
 ブラウザ UI は音声のドロップ／マイク録音・設定・試聴・ダウンロードまでをブラウザで行える。
 ノイズ除去・ハム除去も画面から指定できる。
+「マイク変換を開始」でストリーミング送信・逐次再生も試せる（試験機能）。
+モデルと ONNX が必要。ヘッドホンを使用し、ノイズ除去・ハム除去は 0 にする。
+「特徴抽出の高速化 → GPU / CUDA（試験）」で、合成に加えてピッチ推定・音声特徴抽出も
+GPU 化できる。対応する ONNX Runtime GPU が必要。
+[導入・比較手順](docs/13-web-onnx-cuda.md)。
+遅延を調べるときは開始前に **debug モード**をオンにする。
+入力蓄積・送信待ち・推論・往復時間・再生待ちと、入力から再生開始予定までの推定値を確認できる。
+[計測範囲とJSON保存](docs/14-streaming-debug.md)。
+GPU化後も遅延を減らしたい場合は「区間プリセット → 低遅延・試験」で入力蓄積を280 msへ減らせる。
+[計測結果と比較手順](docs/15-low-latency-preset.md)。
+
+開発時は **Node.js 18+ / Python 3.10+** があれば、リポジトリのルートで次だけでも起動できる。
+
+```bash
+npm run dev
+```
+
+初回は不足している Python 依存関係を `.venv` に自動導入する（CPU 版 PyTorch、数分かかる場合あり）。
+準備後、`http://127.0.0.1:3000` をブラウザで開く。デスクトップ環境では自動でブラウザも開く。
+Python の変更は自動リロードされ、HTML/CSS/JS の変更はブラウザ更新で反映される。
+モデル未配置でも画面は開けるが、実際の音声変換にはモデルと ONNX が必要。
+
+```bash
+npm run dev -- --port 9000 --no-open  # 別ポート・ブラウザを自動で開かない
+npm run setup                        # 依存関係を更新する場合
+```
+
+有効化済みの Python 仮想環境や `VLVC_PYTHON` で指定した Python も利用できる。
+既存の CUDA 版 PyTorch は上書きしない。停止は Ctrl+C。
 詳細・API・実測値は [docs/08-web-ui.md](docs/08-web-ui.md)、エンジン自体は
 [docs/07-own-engine.md](docs/07-own-engine.md)。
+
+### 逐次入力の試作（非因果 RVC、ブラウザのマイク I/O に対応）
+
+音声を 20 ms ごとに入力し、利用可能な出力を順次確定する
+`StreamingChunkedConverter` と `stream-bench` コマンドを追加。
+**重複する ContentVec / RMVPE / 合成処理をキャッシュするものではなく、
+現状でリアルタイム動作を保証しません**。Web UI ではマイク音声を小分けに送信し、
+変換できた区間から連続再生できます。既定設定は入力蓄積だけで 700 ms 必要です。
+
+```bash
+python -m engine stream-bench -m models/tsukuyomi/tsukuyomi-normal1.pth \
+    -i logs/verify/tts-input-ja.wav --device cuda --input-frame-ms 20
+```
+
+使い方・必要な先読み・制約と今後の性能改善計画:
+[docs/12-streaming-foundation.md](docs/12-streaming-foundation.md)。
 
 ### NeoShowcase への公開（2 種類）
 

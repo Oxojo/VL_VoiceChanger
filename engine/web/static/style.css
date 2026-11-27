@@ -232,6 +232,19 @@ table.metrics td.bad { color: var(--warn); }
 
 .hidden { display: none !important; }
 
+.live-card { border-color: #335877; }
+.live-card h2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-card p { margin: 10px 0; }
+.live-error { color: var(--err); }
+.live-options { margin-top: 12px; }
+.live-options summary { cursor: pointer; }
+.live-debug-toggle { margin-top: 14px; cursor: pointer; }
+.debug-table-wrap { overflow-x: auto; }
+.debug-table { font-size: 12px !important; }
+.debug-table td:nth-child(2) { white-space: nowrap; }
+.debug-table td:last-child { color: var(--muted); font-size: 11px; }
+#liveMetrics, #liveQueue { margin-top: 6px; font-variant-numeric: tabular-nums; }
+
 footer {
   color: var(--muted);
   font-size: 12px;

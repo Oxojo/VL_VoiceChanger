@@ -117,11 +117,11 @@ def capture_engine(args: Iterable[str], python: str | None = None, repo: Path = 
 def ensure_web_deps(python: str | None = None) -> None:
     """Web UI の依存関係が無ければ入れる（初回のみ）。"""
     exe = python_exe(python)
-    probe = run([exe, "-c", "import fastapi, uvicorn, multipart"], capture=True)
+    probe = run([exe, "-c", "import fastapi, uvicorn, multipart, websockets"], capture=True)
     if probe.returncode == 0:
         return
     ui.info("Web UI の依存関係をインストールします（初回のみ）…")
-    result = run([exe, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart"], capture=False)
+    result = run([exe, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart", "websockets>=13"], capture=False)
     if result.returncode != 0:
         raise RuntimeError("Web UI の依存関係のインストールに失敗しました")
 

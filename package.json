@@ -1,0 +1,13 @@
+{
+  "name": "vl-voicechanger-dev",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Local development launcher for the Python voice conversion Web UI",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "setup": "node scripts/dev.mjs --setup",
+    "test:audio": "node --test tests/test_stream_audio.mjs tests/test_stream_debug.mjs"
+  }
+}
