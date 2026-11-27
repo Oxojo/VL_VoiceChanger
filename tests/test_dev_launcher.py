@@ -81,7 +81,10 @@ class TestDevLauncher(unittest.TestCase):
                 output, _ = process.communicate(timeout=5)
                 self.fail("dev server did not stop: " + output[-2000:])
         self.assertIn("Started reloader process", output)
-        self.assertIn("Finished server process", output)
+        if os.name != "nt":
+            # Windows では taskkill /T /F でプロセスツリーを強制終了するため、
+            # uvicorn は正常終了時のログを残さない。終了自体は下のポート解放で確認する。
+            self.assertIn("Finished server process", output)
         # The listening socket must be released after Ctrl+C.
         with socket.socket() as sock:
             self.assertNotEqual(sock.connect_ex(("127.0.0.1", port)), 0)
