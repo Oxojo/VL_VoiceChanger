@@ -101,6 +101,13 @@ this configuration is not suitable for interactive low-latency live use.
 
 ## Current limitations / next implementation steps
 
+An opt-in **approximate** F0/ContentVec cache is now available for the Web UI
+and `stream-bench --feature-cache`. It reuses a committed prefix, refreshes
+boundaries with guards at least as large as context, and preserves the
+20 ms feature lattice. Default inference remains uncached. It is not a
+causal/KV cache and does not guarantee identical audio; see
+[feature cache trial](16-stream-feature-cache.md).
+
 1. **Profile per stage**: RMVPE vs ContentVec vs synth, and compare
    `engine bench` with `engine stream-bench` for identical parameters.
 2. **GPU feature inference**: explicitly configure ONNX Runtime GPU

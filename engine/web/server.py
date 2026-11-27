@@ -37,6 +37,8 @@ from ..features.providers import ort_providers, verify_ort_cuda
 from ..metrics import boundary_jumps, compare
 from ..realtime import ChunkConfig, ChunkedConverter
 from .stream import register_stream_routes
+from .streamvc import register_streamvc_routes
+from .llvc import register_llvc_routes
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODELS_DIR = REPO_ROOT / "models"
@@ -75,6 +77,8 @@ def list_models() -> list[dict]:
         return []
     models = []
     for p in sorted(MODELS_DIR.rglob("*.pth")):
+        if (MODELS_DIR / "llvc") in p.parents:
+            continue
         models.append({"id": _model_id(p), "name": p.stem, "size_mb": round(p.stat().st_size / 1024 / 1024, 1)})
     return models
 
@@ -82,6 +86,8 @@ def list_models() -> list[dict]:
 def model_path(model_id: str) -> Path:
     """ID（models/ からの相対パス、拡張子なし）を実パスに解決する。"""
     candidate = (MODELS_DIR / f"{model_id}.pth").resolve()
+    if (MODELS_DIR / "llvc").resolve() in candidate.parents:
+        raise HTTPException(status_code=404, detail="LLVCモデルはLLVCの声一覧から選んでください")
     if MODELS_DIR.resolve() not in candidate.parents or not candidate.is_file():
         raise HTTPException(status_code=404, detail=f"モデルが見つかりません: {model_id}")
     return candidate
@@ -150,6 +156,7 @@ class JobManager:
         self._converters: dict[tuple[str, str, bool], VoiceConverter] = {}
         self._model_info: dict[str, dict] = {}
         self._stream_active = False
+        self._llvc_models = {}
         WORK_DIR.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------- 参照系
@@ -431,6 +438,9 @@ denoise_store = DenoiseStore()
 app = FastAPI(title="VL VoiceChanger", docs_url="/api/docs", redoc_url=None)
 
 register_stream_routes(app, manager)
+
+register_streamvc_routes(app, manager, STATIC_DIR)
+register_llvc_routes(app, manager)
 
 
 # ------------------------------------------------------------------ ルート

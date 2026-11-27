@@ -32,7 +32,7 @@ export class StreamDebug {
       return;
     }
     if (Math.abs(output.firstSample / outputSr - server.output_start_frame / 100) > 1e-6
-        || output.samples !== server.output_frames * (outputSr / 100)) {
+        || Math.abs(output.samples - server.output_frames * (outputSr / 100)) > 1e-6) {
       throw new Error("debug 音声フレーム位置が一致しません");
     }
     const sourceTime = captureOrigin + server.output_start_frame / 100;
@@ -46,6 +46,7 @@ export class StreamDebug {
       audio_response_ms: positive(output.receivedMs - packet.sentMs),
       playback_schedule_ms: positive((output.startTime - output.graphTime) * 1000),
       stage_ms: { ...server.stage_ms },
+      feature_cache: server.feature_cache || { enabled: false },
     };
     this.records.push(record);
     if (this.records.length > this.maxRecords) this.records.shift();
@@ -72,6 +73,7 @@ export class StreamDebug {
       version: 1, settings: this.settings, device_estimates: this.deviceLatencies,
       summary: this.summary(), last_packet: this.lastPacket, reason: this.reason,
       client_state: this.clientState,
+      feature_cache: this.latestFeatureCache,
       limitations: [
         "Graph capture to scheduled playback is an estimate, not physical microphone-to-ear latency.",
         "Input device/OS capture latency is not measured. Browser-reported output latencies are estimates.",

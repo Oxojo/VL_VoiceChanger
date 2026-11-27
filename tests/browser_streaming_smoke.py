@@ -53,10 +53,45 @@ def serve_fixture(port):
             })
 
     server.list_models = lambda: [
-        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold"]
+        {"id": name, "name": name, "size_mb": 0} for name in ["test", "slow", "broken", "cold", "cache-test"]
     ]
     server.manager.model_info = lambda model: {"sample_rate": 48000, "speakers": 1}
-    server.manager._converter = lambda model, device, job, *, ort_cuda=False: Converter(model, ort_cuda)
+    def get_converter(model, device, job, *, ort_cuda=False):
+        if model == "cache-test":
+            from cache_fakes import make_converter
+            return make_converter()
+        return Converter(model, ort_cuda)
+    server.manager._converter = get_converter
+
+    # Only this test process permits an untrained LLVC network. Production
+    # load_stream requires a checkpoint and never creates a fallback model.
+    from engine.web import llvc as llvc_routes
+    from engine.llvc import streaming as llvc_backend
+    llvc_installed = {"value": False}
+    llvc_routes.model_status = lambda: {"installed": llvc_installed["value"], "voices": [
+        {"id":"llvc-default","name":"Default fixture","installed":llvc_installed["value"]},
+        {"id":"llvc:test-trained","name":"Trained voice fixture","installed":llvc_installed["value"]},
+    ]}
+    def install_llvc_fixture():
+        llvc_installed["value"] = True
+        return {"test_only_untrained": True}
+    llvc_routes.install_checkpoint = install_llvc_fixture
+    def untrained_llvc_fixture(device, cache, warmup=True, model_id="llvc-default"):
+        if model_id not in {"llvc-default", "llvc:test-trained"}:
+            raise ValueError("unknown fixture voice")
+        if "test_only_untrained" not in cache:
+            import json
+            import torch
+            torch.set_num_threads(1)
+            config = json.loads((Path(__file__).resolve().parents[1] / "engine/llvc/config.json").read_text())
+            cache["test_only_untrained"] = llvc_backend.Net(**config["model_params"]).eval()
+            from engine.llvc.cpu import prepare_cpu_runtime
+            with tempfile.TemporaryDirectory(prefix="llvc-browser-untrained-") as directory:
+                checkpoint = Path(directory)/"fixture.pth"
+                torch.save({"model": cache["test_only_untrained"].state_dict()}, checkpoint)
+                cache["test_only_runtime"] = prepare_cpu_runtime(cache["test_only_untrained"], checkpoint)
+        return llvc_backend.LLVCStream(cache["test_only_untrained"], cache["test_only_runtime"])
+    llvc_backend.load_stream = untrained_llvc_fixture
 
     @server.app.get("/test/idle")
     async def idle():
@@ -107,6 +142,41 @@ class BrowserStreamingSmoke(unittest.TestCase):
             cls.process.terminate()
             cls.process.join(5)
             raise
+
+    def test_llvc_setup_microphone_debug_stop_and_restart(self):
+        import json
+        page = self.browser.new_page(permissions=["microphone"])
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        try:
+            page.goto(self.url)
+            page.select_option("#streamBackend", "llvc")
+            page.click("#llvcInstall")
+            page.wait_for_function("!document.querySelector('#liveStartBtn').disabled")
+            page.select_option("#llvcVoice", "llvc:test-trained")
+            page.check("#liveDebug")
+            page.click("#liveStartBtn")
+            page.wait_for_function("document.querySelector('#liveMetrics').textContent.includes('出力')", timeout=30000)
+            page.wait_for_function("document.querySelector('#debugExport').disabled === false")
+            with page.expect_download() as download:
+                page.click("#debugExport")
+            report = json.loads(Path(download.value.path()).read_text())
+            self.assertEqual(report["settings"]["backend"], "llvc")
+            self.assertEqual(report["settings"]["model"], "llvc:test-trained")
+            self.assertEqual(report["settings"]["runtime"], "ONNX Runtime CPU / FP32")
+            self.assertLess(report["settings"]["runtime_validation_max_error"], 1e-4)
+            self.assertEqual(report["settings"]["framing"]["hop_ms"], 13)
+            self.assertGreater(len(report["records"]), 0)
+            page.click("#liveStopBtn")
+            page.wait_for_function("!document.querySelector('#liveStartBtn').disabled")
+            self.assertNotIn("一致しません", page.locator("#liveStatus").inner_text())
+            page.click("#liveStartBtn")
+            page.wait_for_function("document.querySelector('#liveStatus').textContent.includes('変換中')")
+            page.click("#liveStopBtn")
+            page.wait_for_function("!document.querySelector('#liveStartBtn').disabled")
+            self.assertFalse(errors, errors)
+        finally:
+            page.close()
 
     @classmethod
     def tearDownClass(cls):
@@ -368,6 +438,29 @@ class BrowserStreamingSmoke(unittest.TestCase):
         report = json.loads(Path(result.value.path()).read_text())
         self.assertEqual(report["settings"]["client_preset"], "quality")
         self.assertAlmostEqual(report["records"][0]["accumulation_ms"], 500, places=3)
+
+    def test_feature_cache_trial_updates_metrics_and_debug_export(self):
+        import json
+
+        self.page.locator("#streamPreset").select_option("quality")
+        self.page.locator("#featureCache").check()
+        self.page.locator("#liveDebug").check()
+        self.start("cache-test")
+        self.page.wait_for_function("window.testPlayback.length >= 3", timeout=15000)
+        self.assertTrue(self.page.locator("#featureCache").is_disabled())
+        self.assertIn("特徴量キャッシュ試験", self.page.locator("#liveCache").inner_text())
+        self.page.locator("#liveStopBtn").click()
+        self.wait_stopped()
+        with self.page.expect_download() as result:
+            self.page.locator("#debugExport").click()
+        report = json.loads(Path(result.value.path()).read_text())
+        self.assertTrue(report["settings"]["feature_cache"])
+        self.assertTrue(report["feature_cache"]["enabled"])
+        self.assertGreater(report["feature_cache"]["avoided_frames"], 0)
+        self.assertGreater(report["feature_cache"]["reused_frames"], 0)
+        self.assertEqual(report["settings"]["framing"]["context_ms"], 150)
+        self.assertEqual(report["settings"]["framing"]["crossfade_ms"], 50)
+        self.assertFalse(self.page.locator("#featureCache").is_disabled())
 
 
 if __name__ == "__main__":

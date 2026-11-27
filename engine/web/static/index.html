@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>VL <span>VoiceChanger</span></h1>
-  <div class="subtitle">RVC v2 を自前実装したリアルタイム音声変換エンジン</div>
+  <div class="subtitle">RVC / LLVC のリアルタイム音声変換エンジン</div>
   <div class="row" style="margin-left:auto">
     <span id="healthBadge" class="badge">接続中…</span>
     <span id="modelBadge" class="badge hidden"></span>
@@ -17,10 +17,25 @@
 </header>
 
 <main>
+  <p><a href="/streamvc">StreamVC 実験：CPU / CUDA の処理速度を計測</a>（未学習・音声変換は未対応）</p>
   <section>
     <div class="card live-card">
       <h2>マイクでストリーミング変換 <span class="badge">試験機能</span></h2>
       <p class="hint">下の変換設定を使って、話しながら変換音声を再生します。ヘッドホンを使用してください。</p>
+      <label class="field">変換方式
+        <select id="streamBackend"><option value="rvc">RVC（登録モデルの声）</option><option value="llvc">LLVC（低遅延・配布モデルの固定の声）</option></select>
+      </label>
+      <div id="llvcSetup" hidden>
+        <p>LLVCは自動選択ではCPUを使います。GPUがCPUより遅い場合があります。LLVCはStreamVCとは別方式です。RVCの声は追加学習したLLVCモデルを選んで使います。下のRVC専用設定はLLVCに直接適用しません。Voice Mixingは未対応です。</p>
+        <p><a href="https://huggingface.co/KoeAI/llvc" target="_blank" rel="noopener">モデル配布元</a>から取得します。初回はダウンロードが必要です。ヘッドホンを使用してください。</p>
+        <label class="field">LLVCの声
+          <select id="llvcVoice"><option value="llvc-default">LLVC配布モデルの声</option></select>
+        </label>
+        <button id="llvcRefresh" class="ghost" type="button">声一覧を更新</button>
+        <p class="hint">追加学習した声を書き出したら一覧を更新して選んでください。設定はマイク開始時に反映します。</p>
+        <button id="llvcInstall" class="ghost" type="button">LLVCモデルを取得</button>
+        <p id="llvcStatus" role="status" aria-live="polite">モデルの状態を確認中…</p>
+      </div>
       <label class="field">区間プリセット
         <select id="streamPreset">
           <option value="balanced">従来設定（入力蓄積700 ms）</option>
@@ -40,6 +55,7 @@
       <div id="liveMetrics" class="hint"></div>
       <div id="liveProviders" class="hint"></div>
       <div id="liveStages" class="hint"></div>
+      <div id="liveCache" class="hint"></div>
       <div id="liveQueue" class="hint"></div>
       <label class="row hint live-debug-toggle"><input id="liveDebug" type="checkbox"> debug モード：遅延の内訳を表示</label>
       <div id="debugPanel" class="hidden">
@@ -84,12 +100,12 @@
     <div class="card">
       <h2>2. 変換設定</h2>
       <div class="grid-2">
-        <label class="field wide">モデル
+        <label class="field wide">RVCモデル
           <select id="modelSelect"></select>
         </label>
         <label class="field">デバイス
           <select id="deviceSelect">
-            <option value="auto">自動（GPU があれば使う）</option>
+            <option value="auto">自動（変換方式に合わせて選択）</option>
             <option value="cuda">CUDA（GPU）</option>
             <option value="cpu">CPU</option>
           </select>
@@ -111,6 +127,10 @@
           </select>
           <span id="ortHint" class="hint">ピッチ推定・音声特徴抽出も GPU で処理します。対応する onnxruntime-gpu が必要です。</span>
         </label>
+        <div class="field wide">
+          <label class="row hint"><input id="featureCache" type="checkbox"> 特徴量キャッシュ（マイク変換のみ・試験）</label>
+          <p class="hint">古いF0・音声特徴を再利用し、境界はcontext以上（最低100 ms）再計算します。音声が変わる可能性があるため、OFFと比較してください。</p>
+        </div>
         <label class="field wide">ピッチ（半音）
           <span class="range-row">
             <input id="pitch" type="range" min="-24" max="24" step="1" value="0">

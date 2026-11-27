@@ -7,6 +7,7 @@ import json
 import time
 from functools import partial
 from urllib.parse import urlsplit
+from typing import Literal
 
 import numpy as np
 import torch
@@ -27,11 +28,13 @@ class StreamRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     type: str = "start"
+    backend: Literal["rvc", "llvc"] = "rvc"
     model: str = Field(min_length=1, max_length=200)
     device: str = "auto"
     ort_cuda: bool = False
     debug: bool = False
     warmup: bool = True
+    feature_cache: bool = False
     pitch: int = Field(default=0, ge=-24, le=24)
     speaker: int = Field(default=0, ge=0, le=255)
     rms_mix: float = Field(default=0.25, ge=0, le=1)
@@ -54,9 +57,16 @@ class StreamRequest(BaseModel):
             raise ValueError("device は auto / cpu / cuda を選んでください")
         device = self.device
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cpu" if self.backend == "llvc" else ("cuda" if torch.cuda.is_available() else "cpu")
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA を利用できません。CPU を選んでください")
+        if self.backend == "llvc":
+            if (self.feature_cache or self.ort_cuda
+                    or self.pitch or self.speaker or self.denoise or self.dehum
+                    or self.output_sr not in (0, 16000)):
+                raise ValueError("LLVCはLLVC用に学習した声を使います。RVCモデル・ピッチ・話者・ONNX・特徴量キャッシュ等の設定は直接使えません")
+            from ..llvc.streaming import load_stream
+            return load_stream(device, manager._llvc_models, warmup=self.warmup, model_id=self.model)
         if self.denoise != 0 or self.dehum != 0:
             raise ValueError("ストリーミングではノイズ除去とハム除去を 0 にしてください")
         if self.output_sr and self.output_sr % 100:
@@ -69,6 +79,7 @@ class StreamRequest(BaseModel):
                 pitch_shift=self.pitch, speaker=self.speaker, rms_mix=self.rms_mix,
                 seed=None if self.seed < 0 else self.seed, output_sr=self.output_sr or None,
             ),
+            feature_cache=self.feature_cache,
         )
         stream.warmup_seconds = 0.0
         if self.warmup:
@@ -87,6 +98,12 @@ class StreamRequest(BaseModel):
                     conv, ChunkConfig(frames / 100, 0, 0), stream.options,
                 )
                 probe.push(np.zeros(frames * 160, dtype=np.float32))
+            if self.feature_cache:
+                try:
+                    frames = stream.hop_frames * 3 + stream.context_frames + stream.fade_frames
+                    stream.push(np.zeros(frames * 160, dtype=np.float32))
+                finally:
+                    stream.reset()
             stream.warmup_seconds = time.perf_counter() - started
         return stream
 
@@ -100,6 +117,8 @@ def register_stream_routes(app, manager) -> None:
             return
         await ws.accept()
         reserved = False
+        stream = None
+        build_task = None
         loop = asyncio.get_running_loop()
 
         async def work(func, *args, trace=None):
@@ -126,6 +145,7 @@ def register_stream_routes(app, manager) -> None:
                 "max_inference_ms": s.max_inference_ms,
                 "stage_ms": {name: seconds * 1000 / s.chunks
                              for name, seconds in s.stage_seconds.items()} if s.chunks else {},
+                "feature_cache": stream.feature_cache.summary() if stream.feature_cache is not None else {"enabled": False},
             }
             if debug is not None:
                 payload["debug"] = debug
@@ -138,14 +158,22 @@ def register_stream_routes(app, manager) -> None:
             req = StreamRequest.model_validate_json(raw)
             manager.reserve_stream()
             reserved = True
-            stream = await work(req.build, manager)
+            build_task = asyncio.create_task(work(req.build, manager))
+            stream = await asyncio.shield(build_task)
             ready = {
                 "type": "ready", "input_sr": 16000, "output_sr": stream.output_sr,
                 "packet_samples": 320, "max_packet_samples": MAX_PACKET_SAMPLES,
                 "max_seconds": MAX_STREAM_FRAMES / 100,
-                "buffer_ms": (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
-                "feature_providers": feature_providers(stream.converter),
+                "buffer_ms": 20 if req.backend == "llvc" else (stream.hop_frames + stream.context_frames + stream.fade_frames) * 10,
+                "backend": req.backend,
+                "runtime": getattr(stream, "runtime_name", None),
+                "runtime_validation_max_error": getattr(stream, "validation_max_error", None),
+                "preflight": getattr(stream, "preflight", None),
+                "feature_providers": feature_providers(stream.converter) if req.backend == "rvc" else {},
+                "playback_lead_ms": 15 if req.backend == "llvc" else 50,
                 "warmup_ms": stream.warmup_seconds * 1000,
+                "feature_cache": {"enabled": req.feature_cache,
+                                  "guard_ms": stream.feature_cache.guard_frames * 10 if req.feature_cache else 0},
             }
             if req.debug:
                 ready["debug"] = {
@@ -179,6 +207,7 @@ def register_stream_routes(app, manager) -> None:
                     "inference_ms": (stream.stats.process_seconds - inference_before) * 1000,
                     "output_start_frame": first_frame,
                     "output_frames": stream.stats.emitted_frames - first_frame,
+                    "feature_cache": stream.feature_cache.summary() if stream.feature_cache is not None else {"enabled": False},
                     "stage_ms": {name: (seconds - stages_before.get(name, 0)) * 1000
                                  for name, seconds in stream.stats.stage_seconds.items()
                                  if seconds != stages_before.get(name, 0)},
@@ -227,5 +256,25 @@ def register_stream_routes(app, manager) -> None:
             except (WebSocketDisconnect, RuntimeError, OSError):
                 pass
         finally:
-            if reserved:
+            if reserved and req.backend == "rvc":
                 manager.release_stream()
+            elif reserved:
+                async def cleanup():
+                    nonlocal stream
+                    # ASGI may cancel the connection during model loading or
+                    # disconnect. Keep the reservation until in-flight work and
+                    # same-worker cleanup finish, even after that cancellation.
+                    if stream is None and build_task is not None:
+                        try:
+                            stream = await build_task
+                        except Exception:
+                            pass
+                    def finish():
+                        try:
+                            close = getattr(stream, "close", None)
+                            if close is not None:
+                                close()
+                        finally:
+                            manager.release_stream()
+                    await work(finish)
+                await asyncio.shield(cleanup())

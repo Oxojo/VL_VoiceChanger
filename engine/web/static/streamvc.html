@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StreamVC 実験 — VL VoiceChanger</title>
+<link rel="stylesheet" href="/static/style.css">
+<script type="module" src="/static/streamvc.js"></script>
+</head>
+<body>
+<header><h1>StreamVC 実験</h1></header>
+<main><section><div class="card">
+<p><a href="/">← RVC の音声変換へ戻る</a></p>
+<h2>20ms単位の処理速度を試す</h2>
+<p><strong>未学習モデルの計算実験です。声質変換・マイク入力・音声の試聴はできません。</strong></p>
+<p>StreamVC論文を参考にしたネットワークで、状態を保持しながら100回処理します。
+専用の学習済み重みが必要で、RVCのモデルは使用できません。</p>
+<form id="probeForm">
+<label class="field">実行デバイス<select id="device"><option value="cpu">CPU</option><option value="cuda">CUDA / GPU</option></select></label>
+<label class="field">CPUスレッド数<select id="threads"><option>1</option><option>2</option><option>4</option></select></label>
+<button class="primary" id="run" type="submit">処理速度を計測する</button>
+</form>
+<p id="status" role="status" aria-live="polite">計測中は他の変換を停止してください。最大120秒かかります。</p>
+<div id="results" hidden>
+<table class="metrics"><thead><tr><th>指標</th><th>結果</th></tr></thead><tbody id="rows"></tbody></table>
+<p>値はニューラル計算のみです。YIN・F0正規化・通信・録音・再生を含む遅延ではありません。
+20ms未満でも、音質や実際の変換遅延を保証しません。</p>
+<button id="download" type="button" class="ghost">計測JSONを保存</button>
+</div>
+<p>論文は構造上60ms＋Pixel 7 / XNNPACKでの計算10.8msを報告しています。
+この画面はPyTorchでの試作の計測で、論文の再現や音声品質の評価ではありません。</p>
+</div></section></main>
+</body></html>

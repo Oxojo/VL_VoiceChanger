@@ -1,0 +1,37 @@
+{
+  "experiment": "LLVC CPU structural performance comparison",
+  "trained_weights": false,
+  "baseline_commit": "94faf47",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "torch": "2.15.0+cpu",
+  "onnxruntime": "1.31.1",
+  "threads": 1,
+  "precision": "FP32",
+  "input_seconds": 4,
+  "packet_samples": 320,
+  "model_step_samples": 208,
+  "warmup_packets": 20,
+  "results": {
+    "before": {
+      "inference_mean_ms": 13.076570221221425,
+      "inference_p95_ms": 16.32185834314441,
+      "inference_max_ms": 35.385763010708615,
+      "inference_rtf": 1.0068959070340497,
+      "wall_rtf": 1.0189700609989814,
+      "packet_worker_mean_ms": 20.30611896989285,
+      "packet_worker_p95_ms": 29.980471954331726
+    },
+    "after": {
+      "inference_mean_ms": 3.9204008350573636,
+      "inference_p95_ms": 4.8889549521845765,
+      "inference_max_ms": 21.034734993008897,
+      "inference_rtf": 0.301870864299417,
+      "wall_rtf": 0.3120902954979101,
+      "packet_worker_mean_ms": 6.214793583785649,
+      "packet_worker_p95_ms": 9.350446228927465
+    }
+  },
+  "maximum_audio_error": 2.4586915969848633e-06,
+  "output_samples": 64000,
+  "limitation": "untrained fixed weights; compute/state test only; not voice quality or microphone-to-ear latency"
+}

@@ -1,0 +1,45 @@
+{
+  "experiment": "untrained_streamvc_neural_core",
+  "trained": false,
+  "paper": "https://arxiv.org/abs/2401.03078",
+  "torch": "2.15.0+cpu",
+  "device": "cpu",
+  "threads": 1,
+  "cpu": "",
+  "scales": {
+    "content": 64,
+    "speaker": 32,
+    "decoder": 40,
+    "embedding": 64
+  },
+  "parameters": 30983633,
+  "frame_ms": 20,
+  "frames": 100,
+  "warmup_frames": 10,
+  "neural_ms": {
+    "mean": 30.963515789771918,
+    "p50": 30.35444297711365,
+    "p95": 35.04040100960992,
+    "max": 37.31876099482179
+  },
+  "real_time_factor": 1.548175789488596,
+  "frames_over_20ms": 100,
+  "speaker_reference_once_ms": 114.17105601867661,
+  "state_bytes": 536776,
+  "state_size_constant": true,
+  "state_bytes_after_flush": 0,
+  "full_vs_stream_max_abs_error": 4.0978193283081055e-08,
+  "output_samples": 32000,
+  "excluded": [
+    "trained weights and voice quality",
+    "YIN and running F0 whitening",
+    "paper training/output delay alignment",
+    "audio capture/transport/playback"
+  ],
+  "paper_reported_ms": {
+    "architecture": 60,
+    "pixel7_compute": 10.8,
+    "total": 70.8
+  },
+  "is_end_to_end_latency_measurement": false
+}
